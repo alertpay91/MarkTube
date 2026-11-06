@@ -133,12 +133,44 @@
     return { fixed: [...new Set(out)].slice(0, 40), buttons: closers, url: location.href, shorts: shortsStack.length, dialogs };
   }
 
+  function leaveShorts() {
+    // The Shorts video player sits on top of the page and stays black until the next page
+    // has been built. Stop and hide it right away; also use the normal dark background
+    // (Shorts uses pure black) so the wait looks like any other tab change.
+    const hidden = [...document.querySelectorAll("video, .player-container, shorts-page")];
+    for (const v of document.querySelectorAll("video")) {
+      try { v.pause(); } catch (e) { }
+    }
+    const restore = hidden.map((el) => [el, el.style.visibility]);
+    for (const el of hidden) el.style.visibility = "hidden";
+    const style = document.createElement("style");
+    style.textContent = "html,body{background:#0f0f0f!important}";
+    document.documentElement.appendChild(style);
+    // YouTube reuses the player element for normal videos, so put it back soon, or at the
+    // first touch if the user opens something before that.
+    let done = false;
+    const undo = () => {
+      if (done) return;
+      done = true;
+      for (const [el, v] of restore) el.style.visibility = v;
+      style.remove();
+      document.removeEventListener("touchstart", undo, true);
+    };
+    setTimeout(undo, 2500);
+    document.addEventListener("touchstart", undo, true);
+  }
+
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
       let closed = null;
       try { closed = tryCloseDialog() || tryClose() || tryPreviousShort(); } catch (e) { closed = null; }
       port.postMessage({ type: "backResult", id: msg.id, handled: !!closed, what: closed });
     } else if (msg.type === "nav") {
+      // Leaving Shorts: YouTube keeps the black Shorts player on screen until the next page
+      // has rendered. Stop and hide it right away so the new page shows up sooner.
+      if (location.pathname.startsWith("/shorts")) {
+        try { leaveShorts(); } catch (e) { }
+      }
       // A link click lets YouTube switch pages itself, which is much faster than a reload.
       const a = document.createElement("a");
       a.href = msg.url;
