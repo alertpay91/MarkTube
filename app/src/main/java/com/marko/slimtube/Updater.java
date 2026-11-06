@@ -127,7 +127,7 @@ final class Updater {
         readyCode = code;
         ready = out;
         Log.i(App.TAG, "update " + code + " ready");
-        if (!App.visible) {
+        if (!App.visible()) {
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> installIfIdle(ctx));
         }
     }

@@ -350,16 +350,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        App.visible = true;
+        App.visibleScreens++;
         Updater.check(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        App.visible = false;
+        App.visibleScreens = Math.max(0, App.visibleScreens - 1);
         geckoView.postDelayed(() -> {
-            if (!App.visible) Updater.installIfIdle(this);
+            if (!App.visible()) Updater.installIfIdle(this);
         }, 3000);
         geckoView.postDelayed(() -> {
             if (App.playing && App.hasSession()) session.setActive(true);
