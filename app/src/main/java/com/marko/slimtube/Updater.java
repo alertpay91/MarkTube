@@ -58,7 +58,9 @@ final class Updater {
             try {
                 JSONObject rel = new JSONObject(get(API));
                 prefs.edit().putLong("lastNotifyCheck", System.currentTimeMillis()).apply();
-                int code = Integer.parseInt(rel.getString("tag_name").replaceAll("\\D", ""));
+                // Tags are "v1.<versionCode>" (older ones were "v<versionCode>").
+                int code = Integer.parseInt(rel.getString("tag_name")
+                        .replaceFirst("^v?1\\.", "").replaceAll("\\D", ""));
                 if (code <= installedVersion(ctx) || code == prefs.getInt("notifiedCode", -1)) return;
                 prefs.edit().putInt("notifiedCode", code).apply();
                 notifyUpdate(ctx, rel.optString("name", "MarkTube"),

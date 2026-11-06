@@ -2,7 +2,7 @@ name: Build & release
 
 # Every week: rebuild with the newest GeckoView (Firefox engine) and publish a release.
 # Every push to main: publish a release with the new code.
-# The app checks the latest release and updates itself.
+# Phones update from the latest release via Obtainium (tag v1.<code> = app versionName).
 on:
   schedule:
     - cron: "0 4 * * 1"
@@ -90,7 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$CODE" MarkTube.apk \
+          gh release create "v1.$CODE" MarkTube.apk \
             --title "MarkTube 1.$CODE" \
             --notes "Automatic build. GeckoView ${{ steps.gecko.outputs.version }}. Commit ${GITHUB_SHA::7}."
 
