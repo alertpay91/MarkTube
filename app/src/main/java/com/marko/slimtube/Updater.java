@@ -62,16 +62,20 @@ final class Updater {
         if (busy) return;
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (ready == null && now - prefs.getLong("lastCheck", 0) < CHECK_EVERY_MS) return;
+        if (ready == null && now - prefs.getLong("lastUpToDate", 0) < CHECK_EVERY_MS) return;
         busy = true;
         new Thread(() -> {
             try {
                 cleanup(ctx);
                 if (ready != null) return;
                 JSONObject rel = new JSONObject(get(API));
-                prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply();
                 int code = Integer.parseInt(rel.getString("tag_name").replaceAll("\\D", ""));
-                if (code <= installedVersion(ctx) || code == prefs.getInt("failedCode", -1)) return;
+                if (code <= installedVersion(ctx) || code == prefs.getInt("failedCode", -1)) {
+                    // Only remembered when nothing is pending, so an interrupted download
+                    // is retried at the next start instead of hours later.
+                    prefs.edit().putLong("lastUpToDate", System.currentTimeMillis()).apply();
+                    return;
+                }
                 JSONArray assets = rel.getJSONArray("assets");
                 for (int i = 0; i < assets.length(); i++) {
                     JSONObject a = assets.getJSONObject(i);
