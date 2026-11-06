@@ -1,0 +1,108 @@
+name: Build & release
+
+# Every week: rebuild with the newest GeckoView (Firefox engine) and publish a release.
+# Every push to main: publish a release with the new code.
+# The app checks the latest release and updates itself.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find newest GeckoView
+        id: gecko
+        run: |
+          v=$(curl -fsSL https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/maven-metadata.xml \
+              | sed -n 's:.*<release>\(.*\)</release>.*:\1:p')
+          [ -n "$v" ] || { echo "could not read GeckoView version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "GeckoView $v"
+
+      - name: Skip if nothing changed
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh release view --json tagName,body -q '.tagName + " " + .body' 2>/dev/null || true)
+          tag=${last%% *}
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$tag" ] \
+             && echo "$last" | grep -q "GeckoView ${{ steps.gecko.outputs.version }}" \
+             && [ -z "$(git log --oneline "$tag"..HEAD 2>/dev/null)" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date ($tag)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.check.outputs.skip == 'false'
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Signing key
+        if: steps.check.outputs.skip == 'false'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Build
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          code=$((100 + ${{ github.run_number }}))
+          echo "CODE=$code" >> "$GITHUB_ENV"
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon \
+            -PversionCode=$code -PversionName=1.$code \
+            -PgeckoviewVersion=${{ steps.gecko.outputs.version }}
+          cp app/build/outputs/apk/release/app-release.apk MarkTube.apk
+
+      - name: Publish release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$CODE" MarkTube.apk \
+            --title "MarkTube 1.$CODE" \
+            --notes "Automatic build. GeckoView ${{ steps.gecko.outputs.version }}. Commit ${GITHUB_SHA::7}."
+
+      - name: Keep only the last 5 releases
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName -q '.[].tagName' | tail -n +6 | while read -r t; do
+            gh release delete "$t" --yes --cleanup-tag
+          done
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f release.jks keystore.properties

@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Bold "M" for MarkTube -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M33,72 L33,36 L42,36 L54,52 L66,36 L75,36 L75,72 L66,72 L66,50 L54,66 L42,50 L42,72 Z" />
+    <!-- small play mark -->
+    <path android:fillColor="#FFFDE047" android:pathData="M50,74 L50,84 L59,79 Z" />
+</vector>

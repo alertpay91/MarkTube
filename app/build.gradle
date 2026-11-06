@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) keystoreProps.load(new FileInputStream(keystorePropsFile))
+
+android {
+    namespace = 'com.marko.slimtube'
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
+
+    defaultConfig {
+        applicationId = 'com.marko.slimtube'
+        minSdk = 26
+        targetSdk = 36
+        versionCode = (project.findProperty('versionCode') ?: '2') as int
+        versionName = project.findProperty('versionName') ?: '1.1'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile = rootProject.file(keystoreProps['storeFile'])
+                storePassword = keystoreProps['storePassword']
+                keyAlias = keystoreProps['keyAlias']
+                keyPassword = keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+            signingConfig = signingConfigs.release
+        }
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "org.mozilla.geckoview:geckoview-arm64-v8a:${project.findProperty('geckoviewVersion') ?: '159.0.20261102144711'}"
+}

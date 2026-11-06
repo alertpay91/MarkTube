@@ -1,0 +1,12 @@
+{
+  "manifest_version": 2,
+  "name": "MarkTube helper",
+  "version": "1.6",
+  "browser_specific_settings": { "gecko": { "id": "helper@slimtube.marko" } },
+  "permissions": ["nativeMessaging", "nativeMessagingFromContent", "geckoViewAddons"],
+  "content_scripts": [{
+    "matches": ["*://m.youtube.com/*", "*://www.youtube.com/*", "*://youtube.com/*"],
+    "js": ["helper.js"],
+    "run_at": "document_idle"
+  }]
+}
