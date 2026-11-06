@@ -69,7 +69,10 @@ public class App extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        Updater.check(this);
+        // Gecko's content/GPU processes run this too; only the main process checks for updates.
+        if (android.os.Build.VERSION.SDK_INT < 28 || getPackageName().equals(getProcessName())) {
+            Updater.check(this);
+        }
     }
 
     static GeckoRuntime runtime(Context ctx) {
