@@ -36,7 +36,7 @@ import java.net.URL;
 final class Updater {
     static final String REPO = "alertpay91/MarkTube";
     private static final String API = "https://api.github.com/repos/" + REPO + "/releases/latest";
-    private static final long CHECK_EVERY_MS = 6L * 60 * 60 * 1000;
+    private static final long CHECK_EVERY_MS = 15L * 60 * 1000;
     private static final String PREFS = "updater";
     private static final String CHANNEL = "updates";
     private static final int NOTIF_ID = 2;
@@ -62,7 +62,8 @@ final class Updater {
         if (busy) return;
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (ready == null && now - prefs.getLong("lastUpToDate", 0) < CHECK_EVERY_MS) return;
+        if (ready == null && prefs.getInt("checkedFor", -1) == installedVersion(ctx)
+                && now - prefs.getLong("lastUpToDate", 0) < CHECK_EVERY_MS) return;
         busy = true;
         new Thread(() -> {
             try {
@@ -73,7 +74,8 @@ final class Updater {
                 if (code <= installedVersion(ctx) || code == prefs.getInt("failedCode", -1)) {
                     // Only remembered when nothing is pending, so an interrupted download
                     // is retried at the next start instead of hours later.
-                    prefs.edit().putLong("lastUpToDate", System.currentTimeMillis()).apply();
+                    prefs.edit().putLong("lastUpToDate", System.currentTimeMillis())
+                            .putInt("checkedFor", installedVersion(ctx)).apply();
                     return;
                 }
                 JSONArray assets = rel.getJSONArray("assets");
