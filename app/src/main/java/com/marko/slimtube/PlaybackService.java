@@ -101,7 +101,6 @@ public class PlaybackService extends Service {
                 App.playing = false;
                 stopForeground(STOP_FOREGROUND_REMOVE);
                 stopSelf();
-                if (!App.visible()) Updater.installIfIdle(this);
                 break;
         }
     }

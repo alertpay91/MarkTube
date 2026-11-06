@@ -8,8 +8,8 @@ playback and SponsorBlock. It's a small, focused browser built on Mozilla's
 Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 
 > 🇷🇸 **Ukratko:** MarkTube je mala Android aplikacija za gledanje YouTube-a bez reklama, sa
-> puštanjem u pozadini i preskakanjem sponzorisanih delova. Aplikacija i ekstenzije se ažuriraju
-> same. Preuzmi `MarkTube.apk` iz [Releases](../../releases/latest) i instaliraj.
+> puštanjem u pozadini i preskakanjem sponzorisanih delova. Ekstenzije se ažuriraju same, a za
+> automatsko ažuriranje aplikacije dodaj ovaj repozitorijum u Obtainium. Preuzmi `MarkTube.apk` iz [Releases](../../releases/latest) i instaliraj.
 
 ## Features
 
@@ -25,11 +25,11 @@ Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
   - A tab bar (Home / Shorts / Subscriptions / You) stays visible on Shorts.
 - **Fullscreen:** turns landscape automatically.
 - **Opens YouTube links** shared from other apps.
-- **Updates itself:**
+- **Stays up to date:**
   - Browser extensions update from addons.mozilla.org on every start.
-  - The app checks this repository's latest release and installs it in the background, over
-    Wi-Fi and only while nothing is playing.
-  - Android asks once to allow installs from MarkTube. Later updates are silent.
+  - MarkTube shows a notification when a new release is out.
+  - For fully automatic app updates, add this repository to
+    [Obtainium](https://github.com/ImranR98/Obtainium) (see below).
 - **Automatic builds:** GitHub Actions rebuilds the app every week with the newest GeckoView, so
   the engine's security fixes keep arriving.
 
@@ -38,6 +38,14 @@ Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 1. Download `MarkTube.apk` from the [latest release](../../releases/latest).
 2. Open it on your phone and allow installing from your browser or file manager.
 3. Sign in to your Google account inside the app if you want your subscriptions.
+
+### Automatic updates with Obtainium
+
+1. Install [Obtainium](https://github.com/ImranR98/Obtainium/releases/latest).
+2. Tap **Add App** and paste `https://github.com/alertpay91/MarkTube`.
+3. Obtainium will then keep MarkTube updated in the background.
+
+MarkTube itself never downloads or installs APKs.
 
 Requires Android 8.0+ on a 64-bit ARM (arm64-v8a) phone.
 

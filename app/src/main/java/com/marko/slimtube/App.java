@@ -51,9 +51,6 @@ public class App extends Application {
     static String artist;
     static Bitmap artwork;
     static boolean playing;
-    /** Main screens currently started (updates are only installed when there are none). */
-    static int visibleScreens;
-    static boolean visible() { return visibleScreens > 0; }
     // Position for the notification seek bar (milliseconds) and when it was reported.
     static long durationMs = -1;
     static long positionMs = -1;

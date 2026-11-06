@@ -343,24 +343,19 @@ public class MainActivity extends Activity {
         attachSession();
     }
 
+    @Override
+    protected void onStart() {
+        super.onStart();
+        Updater.check(this);
+    }
+
     /**
      * GeckoView marks the page hidden when our window goes away (screen off / home), and YouTube
      * pauses hidden pages. While something is playing, keep the page "active" so it continues.
      */
     @Override
-    protected void onStart() {
-        super.onStart();
-        App.visibleScreens++;
-        Updater.check(this);
-    }
-
-    @Override
     protected void onStop() {
         super.onStop();
-        App.visibleScreens = Math.max(0, App.visibleScreens - 1);
-        geckoView.postDelayed(() -> {
-            if (!App.visible()) Updater.installIfIdle(this);
-        }, 3000);
         geckoView.postDelayed(() -> {
             if (App.playing && App.hasSession()) session.setActive(true);
         }, 300);
