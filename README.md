@@ -7,9 +7,122 @@ playback and SponsorBlock. It's a small, focused browser built on Mozilla's
 
 Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 
-> 🇷🇸 **Ukratko:** MarkTube je mala Android aplikacija za gledanje YouTube-a bez reklama, sa
-> puštanjem u pozadini i preskakanjem sponzorisanih delova. Ekstenzije se ažuriraju same, a za
-> automatsko ažuriranje aplikacije dodaj ovaj repozitorijum u Obtainium. Preuzmi `MarkTube.apk` iz [Releases](../../releases/latest) i instaliraj.
+<p>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.marko.slimtube%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Falertpay91%252FMarkTube%2522%252C%2522author%2522%253A%2522alertpay91%2522%252C%2522name%2522%253A%2522MarkTube%2522%257D"><img src="docs/badge_obtainium.png" alt="Get it on Obtainium" height="48"></a>
+  &nbsp;
+  <a href="https://github.com/alertpay91/MarkTube/releases/latest/download/MarkTube.apk"><b>⬇ Download MarkTube.apk</b></a>
+</p>
+
+- [🇷🇸 Uputstvo za instalaciju (srpski)](#-uputstvo-za-instalaciju)
+- [🇬🇧 How to install (English)](#-how-to-install)
+- [iPhone](#iphone)
+
+## 🇷🇸 Uputstvo za instalaciju
+
+MarkTube je mala Android aplikacija za gledanje YouTube-a:
+- bez reklama,
+- sa puštanjem u pozadini i na zaključanom ekranu,
+- sa preskakanjem sponzorisanih delova u videima.
+
+Preporučeni način je preko aplikacije **Obtainium**. Ona besplatno i bezbedno skida aplikacije
+direktno sa GitHub-a i sama ih ažurira. Tako se MarkTube ažurira sam, bez ikakvog truda.
+
+### 1. Instaliraj Obtainium
+
+1. Na telefonu otvori
+   [Obtainium izdanja](https://github.com/ImranR98/Obtainium/releases/latest).
+2. Pod **Assets** preuzmi fajl **`app-arm64-v8a-release.apk`**.
+3. Otvori preuzeti fajl i dodirni **Instaliraj**.
+   - Ako telefon pita, dozvoli instaliranje iz pretraživača (Chrome).
+   - Taj korak traži „Install unknown apps“ dozvolu.
+
+### 2. Dodaj MarkTube u Obtainium
+
+1. Na telefonu otvori ovu stranicu i dodirni dugme **Get it on Obtainium** na vrhu.
+2. Obtainium se otvori. Dodirni **Continue**, pa **Add**.
+
+Ako dugme ne radi, uradi isto ručno:
+1. U Obtainium-u dodirni **+ Add**.
+2. U polje **App source URL** nalepi `https://github.com/alertpay91/MarkTube`.
+3. Dodirni **Add**.
+
+### 3. Instaliraj MarkTube
+
+1. U Obtainium-u dodirni dugme za preuzimanje pored MarkTube-a.
+2. Prvi put Android traži dve potvrde:
+   - **Allow from this source**: uključi, pa se vrati nazad.
+   - **Google Play Protect** (*App scan recommended*): izaberi **Scan app**. Kad piše
+     *This app looks safe*, dodirni **Install**.
+3. Otvori MarkTube. Ako želiš svoje pretplate, prijavi se na Google nalog (dodirni **You**).
+
+### 4. Ažuriranja
+
+- **Aplikacija:** Obtainium sam proverava nove verzije na svakih nekoliko sati i instalira ih u
+  pozadini, bez pitanja.
+  - Ako ne želiš da troši mobilne podatke (ažuriranje ima oko 95 MB), otvori Obtainium →
+    ⚙️ → **Updates** → **When not on Wi-Fi** → **Check only**.
+- **Blokator reklama i SponsorBlock:** ažuriraju se sami pri svakom pokretanju MarkTube-a.
+
+### Bez Obtainium-a
+
+1. Preuzmi [MarkTube.apk](https://github.com/alertpay91/MarkTube/releases/latest/download/MarkTube.apk).
+2. Instaliraj ga isto kao u koraku 3.
+
+MarkTube će ti poslati obaveštenje kad izađe nova verzija, ali ćeš je instalirati ručno.
+
+### Česta pitanja
+
+- **Da li je bezbedno?** Da.
+  - Kod je javan, ovde na GitHub-u.
+  - Aplikaciju pravi GitHub automatski iz tog koda.
+  - Google Play Protect je skenira i označava kao bezbednu.
+  - MarkTube ne skuplja nikakve podatke.
+- **Da li troši bateriju u pozadini?** Ne. Kad ništa ne pušta, aplikacija miruje.
+- **Koji telefon treba?** Android 8.0 ili noviji, sa 64-bitnim procesorom. To su skoro svi
+  telefoni iz poslednjih nekoliko godina.
+
+## 🇬🇧 How to install
+
+The recommended way is **Obtainium**, a free, open-source app that installs apps straight from
+GitHub and keeps them updated in the background.
+
+1. **Install Obtainium:**
+   1. Open [Obtainium releases](https://github.com/ImranR98/Obtainium/releases/latest) on your phone.
+   2. Download `app-arm64-v8a-release.apk` and install it.
+   3. Allow installs from your browser if asked.
+2. **Add MarkTube:**
+   1. On your phone, tap the **Get it on Obtainium** badge above.
+   2. Tap **Continue**, then **Add**.
+   - Manual alternative: tap **+ Add** in Obtainium, paste `https://github.com/alertpay91/MarkTube`
+     and tap **Add**.
+3. **Install:**
+   1. Tap the download button next to MarkTube.
+   2. The first time, Android asks you to allow installs from Obtainium.
+   3. Play Protect may recommend a scan: choose **Scan app**, then **Install**.
+4. **Updates:**
+   - **The app:** after the first install, Obtainium updates MarkTube silently in the background.
+   - **The blocker extensions:** they update themselves every time MarkTube starts.
+
+Without Obtainium, download
+[MarkTube.apk](https://github.com/alertpay91/MarkTube/releases/latest/download/MarkTube.apk) and
+install it. MarkTube will show a notification when a new version is out.
+
+Requires Android 8.0+ on a 64-bit ARM (arm64-v8a) phone.
+
+## iPhone
+
+There is no iPhone version. Apple doesn't allow a custom browser engine with extensions like
+this. You can get close in Safari, though:
+
+1. Install **uBlock Origin Lite** (free, iOS 18+) from the App Store.
+2. Turn it on in **Settings → Apps → Safari → Extensions**.
+3. Optionally, add **SponsorBlock for Safari** (paid) from the App Store.
+4. Open `m.youtube.com` in Safari itself. Don't use "Add to Home Screen": extensions don't run
+   there.
+5. For background audio:
+   1. Start the video.
+   2. Lock the screen.
+   3. Press play on the lock screen.
 
 ## Features
 
@@ -27,27 +140,11 @@ Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 - **Opens YouTube links** shared from other apps.
 - **Stays up to date:**
   - Browser extensions update from addons.mozilla.org on every start.
-  - MarkTube shows a notification when a new release is out.
-  - For fully automatic app updates, add this repository to
-    [Obtainium](https://github.com/ImranR98/Obtainium) (see below).
+  - The app updates through Obtainium.
 - **Automatic builds:** GitHub Actions rebuilds the app every week with the newest GeckoView, so
   the engine's security fixes keep arriving.
 
-## Install
-
-1. Download `MarkTube.apk` from the [latest release](../../releases/latest).
-2. Open it on your phone and allow installing from your browser or file manager.
-3. Sign in to your Google account inside the app if you want your subscriptions.
-
-### Automatic updates with Obtainium
-
-1. Install [Obtainium](https://github.com/ImranR98/Obtainium/releases/latest).
-2. Tap **Add App** and paste `https://github.com/alertpay91/MarkTube`.
-3. Obtainium will then keep MarkTube updated in the background.
-
 MarkTube itself never downloads or installs APKs.
-
-Requires Android 8.0+ on a 64-bit ARM (arm64-v8a) phone.
 
 ## Build it yourself
 
@@ -59,6 +156,8 @@ Requires Android 8.0+ on a 64-bit ARM (arm64-v8a) phone.
   `keyPassword`), which is not part of this repository.
 - CI gets the key from repository secrets: `KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_ALIAS` and
   `KEY_PASSWORD`.
+- Release tags are `v1.<versionCode>`, matching the app's version name, so Obtainium detects
+  versions correctly.
 
 ## Disclaimer
 
@@ -75,3 +174,6 @@ services you use.
 - uBlock Origin, SponsorBlock and Video Background Play Fix are
   downloaded at runtime from addons.mozilla.org. They belong to their authors and keep their own
   licenses.
+- The "Get it on Obtainium" badge comes from the
+  [Obtainium](https://github.com/ImranR98/Obtainium) project (GPL-3.0), which invites projects to
+  use it.
