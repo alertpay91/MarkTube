@@ -50,5 +50,7 @@ android {
 }
 
 dependencies {
+    // yt-dlp + Python for the "Preuzimanje" (download) screen. No ffmpeg: MediaMuxer joins streams.
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
     implementation "org.mozilla.geckoview:geckoview-arm64-v8a:${project.findProperty('geckoviewVersion') ?: '159.0.20261102144711'}"
 }

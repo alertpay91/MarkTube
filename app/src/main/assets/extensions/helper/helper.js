@@ -160,6 +160,111 @@
     document.addEventListener("touchstart", undo, true);
   }
 
+  // ---- Pull down at the top of a feed to reload it (a browser would do this; GeckoView doesn't) ----
+  const isFeedPage = () => !/^\/(watch|shorts|live|embed)/.test(location.pathname);
+  const scrolledAncestor = (el) => {
+    for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
+      if (e.scrollTop > 0) return true;
+    }
+    return false;
+  };
+  let ptr = null, ptrStart = -1, ptrDist = 0;
+  const PTR_LIMIT = 140; // px of finger travel needed
+  function ptrView() {
+    if (ptr && ptr.isConnected) return ptr;
+    ptr = document.createElement("div");
+    ptr.style.cssText = "position:fixed;top:0;left:50%;width:40px;height:40px;margin-left:-20px;"
+      + "border-radius:50%;background:#272727;color:#f1f1f1;z-index:2147483647;display:flex;"
+      + "align-items:center;justify-content:center;font:22px sans-serif;box-shadow:0 2px 6px #0008;"
+      + "transform:translateY(-60px);opacity:0;pointer-events:none;transition:none";
+    ptr.textContent = "↻";
+    document.documentElement.appendChild(ptr);
+    return ptr;
+  }
+  function ptrHide() {
+    if (!ptr) return;
+    ptr.style.transition = "transform .2s, opacity .2s";
+    ptr.style.transform = "translateY(-60px)";
+    ptr.style.opacity = "0";
+  }
+  document.addEventListener("touchstart", (e) => {
+    ptrStart = -1;
+    if (e.touches.length !== 1 || !isFeedPage() || window.scrollY > 0
+      || scrolledAncestor(e.target) || firstVisible([DIALOGS, "bottom-sheet-container", "ytm-bottom-sheet-renderer"])) return;
+    ptrStart = e.touches[0].clientY;
+    ptrDist = 0;
+  }, { passive: true, capture: true });
+  document.addEventListener("touchmove", (e) => {
+    if (ptrStart < 0) return;
+    ptrDist = e.touches[0].clientY - ptrStart;
+    if (ptrDist <= 0 || window.scrollY > 0) {
+      ptrStart = -1;
+      ptrHide();
+      return;
+    }
+    const v = ptrView();
+    const k = Math.min(ptrDist / PTR_LIMIT, 1);
+    v.style.transition = "none";
+    v.style.transform = "translateY(" + Math.round(k * 70) + "px) rotate(" + Math.round(k * 270) + "deg)";
+    v.style.opacity = String(k);
+    v.style.color = k >= 1 ? "#3ea6ff" : "#f1f1f1";
+  }, { passive: true, capture: true });
+  const ptrEnd = () => {
+    if (ptrStart < 0) return;
+    ptrStart = -1;
+    if (ptrDist >= PTR_LIMIT && window.scrollY <= 0) {
+      port.postMessage({ type: "log", text: "pull to refresh" });
+      location.reload();
+    } else {
+      ptrHide();
+    }
+  };
+  document.addEventListener("touchend", ptrEnd, { capture: true });
+  document.addEventListener("touchcancel", () => { ptrStart = -1; ptrHide(); }, { capture: true });
+
+  // ---- "Preuzmi" (download) item in YouTube's bottom tab bar ----
+  const DL_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="pointer-events:none">'
+    + '<path d="M17 18v1H7v-1h10zm-.86-6.65-.7-.71L12.5 13.6V4h-1v9.6L8.56 10.64l-.7.71L12 15.5l4.14-4.15z"/></svg>';
+  function addDownloadTab() {
+    const bar = document.querySelector("ytm-pivot-bar-renderer");
+    if (!bar || bar.querySelector(".marktube-dl")) return;
+    const items = bar.querySelectorAll("ytm-pivot-bar-item-renderer");
+    if (!items.length) return;
+    // Copy a real tab so it looks exactly like YouTube's own, then swap its icon and label.
+    const item = items[items.length - 1].cloneNode(true);
+    item.classList.add("marktube-dl");
+    for (const el of [item, ...item.querySelectorAll("*")]) {
+      el.removeAttribute("id");
+      el.removeAttribute("href");
+      el.removeAttribute("aria-selected");
+      el.classList.remove("pivot-bar-item-tab-selected", "selected");
+    }
+    const svg = item.querySelector("svg");
+    if (svg) {
+      const holder = document.createElement("span");
+      holder.innerHTML = DL_ICON;
+      svg.replaceWith(holder.firstChild);
+    }
+    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    let first = true;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.nodeValue.trim()) continue;
+      n.nodeValue = first ? "Preuzmi" : "";
+      first = false;
+    }
+    item.setAttribute("aria-label", "Preuzmi");
+    const open = (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.type === "click") port.postMessage({ type: "download", url: location.href });
+    };
+    for (const t of ["click", "pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "mouseup"]) {
+      item.addEventListener(t, open, { capture: true });
+    }
+    items[items.length - 1].after(item);
+  }
+  setInterval(() => { try { addDownloadTab(); } catch (e) { } }, 1000);
+
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
       let closed = null;

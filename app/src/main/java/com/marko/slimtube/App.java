@@ -63,6 +63,8 @@ public class App extends Application {
     private static final Map<Integer, Consumer<Boolean>> pendingBack = new HashMap<>();
     private static int nextBackId;
     private static final Handler main = new Handler(Looper.getMainLooper());
+    /** Set by MainActivity: the page's "Preuzmi" tab was tapped (argument = page URL). */
+    static Consumer<String> onDownload;
 
     @Override
     public void onCreate() {
@@ -191,6 +193,9 @@ public class App extends Application {
                             Log.i(TAG, "back: page closed " + msg.optString("what", "nothing"));
                             Consumer<Boolean> cb = pendingBack.remove(msg.optInt("id"));
                             if (cb != null) cb.accept(msg.optBoolean("handled"));
+                        } else if ("download".equals(type)) {
+                            Consumer<String> d = onDownload;
+                            if (d != null) d.accept(msg.optString("url"));
                         } else if ("log".equals(type)) {
                             Log.i(TAG, "page: " + msg.optString("text"));
                         } else if ("dump".equals(type)) {

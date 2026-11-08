@@ -15,6 +15,7 @@ Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 
 - [🇷🇸 Uputstvo za instalaciju (srpski)](#-uputstvo-za-instalaciju)
 - [🇬🇧 How to install (English)](#-how-to-install)
+- [⚠ Preuzimanje / Downloading](#-preuzimanje--na-sopstvenu-odgovornost)
 - [iPhone](#iphone)
 
 ## 🇷🇸 Uputstvo za instalaciju
@@ -22,7 +23,8 @@ Created by **Marko Stevanović** ([@alertpay91](https://github.com/alertpay91)).
 MarkTube je mala Android aplikacija za gledanje YouTube-a:
 - bez reklama,
 - sa puštanjem u pozadini i na zaključanom ekranu,
-- sa preskakanjem sponzorisanih delova u videima.
+- sa preskakanjem sponzorisanih delova u videima,
+- sa tabom **Preuzmi** za snimke koje smeš da preuzmeš (vidi [upozorenje](#-preuzimanje--na-sopstvenu-odgovornost)).
 
 Preporučeni način je preko aplikacije **Obtainium**. Ona besplatno i bezbedno skida aplikacije
 direktno sa GitHub-a i sama ih ažurira. Tako se MarkTube ažurira sam, bez ikakvog truda.
@@ -109,6 +111,36 @@ install it. MarkTube will show a notification when a new version is out.
 
 Requires Android 8.0+ on a 64-bit ARM (arm64-v8a) phone.
 
+## ⚠ Preuzimanje — na sopstvenu odgovornost
+
+MarkTube ima tab **Preuzmi** (u donjoj traci, i u meniju „Deli“ kao *Preuzmi (MarkTube)*).
+Snimak ili samo zvuk preuzima pomoću programa [yt-dlp](https://github.com/yt-dlp/yt-dlp), a fajl
+čuva u folderu **Download/MarkTube**.
+
+**Korisnik preuzima na sopstvenu odgovornost i sme da preuzima samo ono što ima pravo da
+preuzme**, na primer:
+
+- svoje snimke,
+- snimke čiji je autor izričito dozvolio preuzimanje,
+- sadržaj sa slobodnom licencom (npr. Creative Commons) ili u javnom domenu.
+
+Preuzimanje tuđe muzike, filmova i drugih snimaka bez dozvole može da krši autorska prava i
+YouTube uslove korišćenja. Poštuj zakone svoje zemlje. Pre svakog preuzimanja aplikacija prikaže
+licencu snimka i traži da potvrdiš da imaš pravo da ga preuzmeš. Zaštićeni (DRM) i plaćeni
+sadržaji se ne preuzimaju. Autori MarkTube-a ne odgovaraju za to šta korisnici preuzimaju niti
+kako to koriste.
+
+### Downloading — at your own risk (English)
+
+MarkTube has a **Preuzmi** (Download) tab, also offered in the share menu. It downloads a video
+or just its audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp) into **Download/MarkTube**.
+**You download at your own risk and only what you are allowed to download**: your own uploads,
+videos whose author permits it, or freely licensed (e.g. Creative Commons) / public-domain
+content. Downloading other people's music or videos without permission may infringe copyright and
+YouTube's Terms of Service. Before each download the app shows the video's licence and asks you to
+confirm you have the right to download it. DRM-protected and paid content is not downloaded. The
+authors of MarkTube are not responsible for what users download or how they use it.
+
 ## iPhone
 
 There is no iPhone version. Apple doesn't allow a custom browser engine with extensions like
@@ -138,6 +170,12 @@ this. You can get close in Safari, though:
   - A tab bar (Home / Shorts / Subscriptions / You) stays visible on Shorts.
 - **Fullscreen:** turns landscape automatically.
 - **Opens YouTube links** shared from other apps.
+- **Pull to refresh:** pull down at the top of Home, Subscriptions or a channel to reload it. The
+  feed also reloads by itself when you come back after 20 minutes or more.
+- **Download tab** (at your own risk, only content you may download, see
+  [above](#-preuzimanje--na-sopstvenu-odgovornost)): video up to 720p/1080p or audio only, via
+  yt-dlp. yt-dlp updates itself once a day; there is no ffmpeg, the video and audio streams are
+  joined with Android's MediaMuxer.
 - **Stays up to date:**
   - Browser extensions update from addons.mozilla.org on every start.
   - The app updates through Obtainium.
@@ -163,14 +201,19 @@ MarkTube itself never downloads or installs APKs.
 
 MarkTube is an independent, non-commercial project and is **not affiliated with, endorsed by,
 or sponsored by YouTube or Google**. "YouTube" is a trademark of Google LLC. MarkTube does not
-download or redistribute videos and does not include or modify any YouTube software. It displays
-the public mobile website the way any web browser does. Use it in line with the terms of the
-services you use.
+include or modify any YouTube software and does not redistribute videos. It displays the public
+mobile website the way any web browser does. The optional download tab only fetches what the user
+asks for, on the user's own device and responsibility, and is meant only for content the user is
+allowed to download. Use it in line with the law and the terms of the services you use.
 
 ## License
 
 - MarkTube's own code is released under the [MIT License](LICENSE).
 - GeckoView is © Mozilla and licensed under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/).
+- The download tab uses [youtubedl-android](https://github.com/yausername/youtubedl-android)
+  (GPL-3.0), which bundles Python (PSF License), QuickJS (MIT) and
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense). Because of that library, the APK as a
+  whole is distributed under the GPL-3.0; MarkTube's own source code stays MIT.
 - uBlock Origin, SponsorBlock and Video Background Play Fix are
   downloaded at runtime from addons.mozilla.org. They belong to their authors and keep their own
   licenses.

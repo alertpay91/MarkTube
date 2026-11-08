@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -71,6 +72,7 @@ public class MainActivity extends Activity {
     }
 
     private void attachSession() {
+        App.onDownload = downloadHandler;
         session = App.session(this);
         session.setNavigationDelegate(new NavDelegate());
         session.setContentDelegate(new ContentDelegate());
@@ -149,10 +151,23 @@ public class MainActivity extends Activity {
             {"Shorts", "https://m.youtube.com/shorts"},
             {"Subscriptions", "https://m.youtube.com/feed/subscriptions"},
             {"You", "https://m.youtube.com/feed/library"},
+            {"Preuzmi", null},
     };
     private static final int[] TAB_ICONS = {
             R.drawable.ic_tab_home, R.drawable.ic_tab_shorts, R.drawable.ic_tab_subs, R.drawable.ic_tab_you,
+            R.drawable.ic_tab_download,
     };
+
+    private final java.util.function.Consumer<String> downloadHandler = this::openDownloads;
+
+    /** Opens the "Preuzimanje" screen, filled in with the video that is open (if any). */
+    void openDownloads(String pageUrl) {
+        Intent i = new Intent(this, DownloadActivity.class);
+        String url = DownloadActivity.videoUrl(pageUrl != null ? pageUrl : currentUrl);
+        if (url == null) url = DownloadActivity.videoUrl(currentUrl);
+        if (url != null) i.putExtra(DownloadActivity.EXTRA_URL, url);
+        startActivity(i);
+    }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
@@ -188,6 +203,7 @@ public class MainActivity extends Activity {
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
             if (isShorts) label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             item.setOnClickListener(v -> {
+                if (url == null) { openDownloads(currentUrl); return; }
                 if (isShorts && isShorts(currentUrl)) return;
                 App.navigate(url, () -> session.loadUri(url));
             });
@@ -343,10 +359,29 @@ public class MainActivity extends Activity {
         attachSession();
     }
 
+    private static long stoppedAt; // static: the page outlives this activity
+
     @Override
     protected void onStart() {
         super.onStart();
         Updater.check(this);
+        // The page stays loaded for as long as the process lives, so without this the feed
+        // would show the same videos for days. Reload it after a while in the background.
+        if (stoppedAt > 0 && android.os.SystemClock.elapsedRealtime() - stoppedAt > 20 * 60 * 1000
+                && !App.playing && isFeed(currentUrl) && App.hasSession()) {
+            Log.i(App.TAG, "reloading stale feed");
+            session.reload();
+        }
+        stoppedAt = 0;
+    }
+
+    /** Pages with a list of videos (home, subscriptions, channels...) - not a video or a short. */
+    private static boolean isFeed(String url) {
+        if (url == null) return false;
+        Uri u = Uri.parse(url);
+        String path = u.getPath() == null ? "/" : u.getPath();
+        return isAllowed(u) && !path.startsWith("/watch") && !path.startsWith("/shorts")
+                && !path.startsWith("/live") && (u.getFragment() == null || u.getFragment().isEmpty());
     }
 
     /**
@@ -356,6 +391,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        stoppedAt = android.os.SystemClock.elapsedRealtime();
         geckoView.postDelayed(() -> {
             if (App.playing && App.hasSession()) session.setActive(true);
         }, 300);
@@ -363,6 +399,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (App.onDownload == downloadHandler) App.onDownload = null;
         if (geckoView != null) geckoView.releaseSession();
         super.onDestroy();
     }

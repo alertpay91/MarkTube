@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".App"
@@ -44,6 +45,26 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- "Preuzimanje" screen; also offered in the share menu as "Preuzmi (MarkTube)". -->
+        <activity
+            android:name=".DownloadActivity"
+            android:exported="true"
+            android:label="Preuzmi (MarkTube)"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".PlaybackService"
