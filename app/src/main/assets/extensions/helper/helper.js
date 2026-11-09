@@ -225,6 +225,35 @@
   // ---- "Preuzmi" (download) item in YouTube's bottom tab bar ----
   const DL_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="pointer-events:none">'
     + '<path d="M17 18v1H7v-1h10zm-.86-6.65-.7-.71L12.5 13.6V4h-1v9.6L8.56 10.64l-.7.71L12 15.5l4.14-4.15z"/></svg>';
+  // Swallow every pointer event on our own button so YouTube never sees it, and open the
+  // download screen on touchend: with touchstart cancelled, Gecko sends no click at all.
+  let lastTap = 0;
+  function guardTap(item, action) {
+    let sx = 0, sy = 0;
+    const fire = () => {
+      const now = Date.now();
+      if (now - lastTap < 800) return;
+      lastTap = now;
+      action();
+    };
+    const h = (e) => {
+      e.stopImmediatePropagation();
+      if (e.type === "touchstart") {
+        sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      if (e.type === "touchend") {
+        const t = e.changedTouches[0];
+        if (Math.abs(t.clientX - sx) < 20 && Math.abs(t.clientY - sy) < 20) fire();
+      } else if (e.type === "click") {
+        fire();
+      }
+    };
+    for (const t of ["click", "pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "mouseup"]) {
+      item.addEventListener(t, h, { capture: true });
+    }
+  }
   function addDownloadTab() {
     const bar = document.querySelector("ytm-pivot-bar-renderer");
     if (!bar || bar.querySelector(".marktube-dl")) return;
@@ -253,17 +282,39 @@
       first = false;
     }
     item.setAttribute("aria-label", "Preuzmi");
-    const open = (e) => {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (e.type === "click") port.postMessage({ type: "download", url: location.href });
-    };
-    for (const t of ["click", "pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "mouseup"]) {
-      item.addEventListener(t, open, { capture: true });
-    }
+    guardTap(item, () => port.postMessage({ type: "download", url: location.href }));
     items[items.length - 1].after(item);
   }
   setInterval(() => { try { addDownloadTab(); } catch (e) { } }, 1000);
+  // On a normal video page YouTube hides the bottom tab bar, so the "Preuzmi" tab is not
+  // there. Put the same icon into the row under the video (like / dislike / share ...).
+  const DL_ICON_BOLD = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="pointer-events:none;display:block">'
+    + '<path d="M11.25 3.5h1.5v10.69l3.72-3.72 1.06 1.06L12 17.06l-5.53-5.53 1.06-1.06 3.72 3.72zM5 19h14v1.5H5z"/></svg>';
+  function addWatchDownload() {
+    if (!location.pathname.startsWith("/watch")) return;
+    const bar = document.querySelector("ytm-slim-video-action-bar-renderer .slim-video-action-bar-actions")
+      || document.querySelector("ytm-slim-video-action-bar-renderer");
+    if (!bar || bar.querySelector(".marktube-dl-watch")) return;
+    const buttons = [...bar.querySelectorAll("button-view-model.slim_video_action_bar_renderer_button")];
+    const share = buttons.find((b) => !b.matches(".slim-action-more-button, .you-chat-entrypoint-button"))
+      || buttons[0];
+    if (!share) return;
+    const item = share.cloneNode(true);
+    item.classList.add("marktube-dl-watch");
+    item.classList.remove("you-chat-entrypoint-button", "slim-action-more-button");
+    const icon = item.querySelector("c3-icon, yt-icon, .ytSpecButtonShapeNextIcon");
+    if (icon) {
+      const holder = document.createElement("span");
+      holder.innerHTML = DL_ICON_BOLD;
+      icon.replaceChildren(holder.firstChild);
+    }
+    const btn = item.querySelector("button") || item;
+    btn.setAttribute("aria-label", "Preuzmi");
+    btn.setAttribute("title", "Preuzmi");
+    guardTap(item, () => port.postMessage({ type: "download", url: location.href }));
+    share.after(item);
+  }
+  setInterval(() => { try { addWatchDownload(); } catch (e) { } }, 1000);
 
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
