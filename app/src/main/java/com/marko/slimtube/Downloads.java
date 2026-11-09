@@ -16,7 +16,6 @@ import android.util.Log;
 
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
-import com.yausername.youtubedl_android.mapper.VideoInfo;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -49,6 +48,8 @@ final class Downloads {
         final String title;
         final int mode;
         final String processId;
+        /** yt-dlp's JSON from "Proveri snimak": the download reuses it instead of asking YouTube again. */
+        final File infoJson;
         volatile int state = QUEUED;
         volatile float progress = -1;
         volatile String status = "Na čekanju";
@@ -56,8 +57,9 @@ final class Downloads {
         volatile String resultPath;
         volatile boolean cancelled;
 
-        Job(int id, String url, String title, int mode) {
+        Job(int id, String url, String title, int mode, File infoJson) {
             this.id = id;
+            this.infoJson = infoJson;
             this.url = url;
             this.title = title;
             this.mode = mode;
@@ -70,7 +72,10 @@ final class Downloads {
     }
 
     static final List<Job> jobs = new CopyOnWriteArrayList<>();
-    private static final ExecutorService worker = Executors.newSingleThreadExecutor();
+    /** Two at a time: most of a download is yt-dlp talking to YouTube, not the transfer itself. */
+    private static final ExecutorService worker = Executors.newFixedThreadPool(2);
+    /** Stream links in a saved info expire after a few hours; older info is not reused. */
+    private static final long INFO_MAX_AGE = 2L * 3600 * 1000;
     private static int nextId;
     private static boolean ready;
 
@@ -86,33 +91,96 @@ final class Downloads {
         return null;
     }
 
-    /** Unpacks Python + yt-dlp on first use and updates yt-dlp at most once a day. */
+    /** Unpacks Python + yt-dlp on first use. */
     static synchronized void ensureReady(Context ctx) throws Exception {
-        Context app = ctx.getApplicationContext();
         if (!ready) {
-            YoutubeDL.getInstance().init(app);
+            YoutubeDL.getInstance().init(ctx.getApplicationContext());
+            if (!anyActive()) cleanWork(ctx.getApplicationContext());
             ready = true;
         }
+    }
+
+    /**
+     * Updates yt-dlp at most once a day (YouTube changes often; an old yt-dlp stops working).
+     * Called when the download screen is left with nothing running, so a check or a download
+     * never has to wait for the update any more.
+     */
+    static void updateIfDue(Context ctx) {
+        Context app = ctx.getApplicationContext();
         SharedPreferences p = app.getSharedPreferences("downloads", Context.MODE_PRIVATE);
-        long last = p.getLong("ytdlpUpdate", 0);
-        if (System.currentTimeMillis() - last > 24L * 3600 * 1000) {
+        if (System.currentTimeMillis() - p.getLong("ytdlpUpdate", 0) < 24L * 3600 * 1000) return;
+        if (anyActive()) return;
+        new Thread(() -> {
             try {
-                // YouTube changes often; an old yt-dlp stops working quickly.
+                ensureReady(app);
                 YoutubeDL.UpdateStatus s = YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._STABLE);
                 Log.i(App.TAG, "yt-dlp update: " + s + " " + YoutubeDL.getInstance().versionName(app));
                 p.edit().putLong("ytdlpUpdate", System.currentTimeMillis()).apply();
             } catch (Exception e) {
                 Log.w(App.TAG, "yt-dlp update failed", e);
             }
+        }, "ytdlp-update").start();
+    }
+
+    /** What "Proveri snimak" shows about one video. */
+    static final class Info {
+        String title, uploader, license;
+        int duration;
+        /** yt-dlp's full JSON; null for the quick answer, which has only title + channel. */
+        File json;
+    }
+
+    /**
+     * Title and channel in well under a second through YouTube's public oEmbed endpoint, so the
+     * user sees at once which video it is; length and licence follow from {@link #info}.
+     */
+    static Info quickInfo(String url) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                "https://www.youtube.com/oembed?format=json&url=" + java.net.URLEncoder.encode(url, "UTF-8")).openConnection();
+        c.setConnectTimeout(6000);
+        c.setReadTimeout(6000);
+        try (InputStream in = c.getInputStream()) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            copy(in, b);
+            org.json.JSONObject j = new org.json.JSONObject(b.toString("UTF-8"));
+            Info i = new Info();
+            i.title = j.optString("title", null);
+            i.uploader = j.optString("author_name", null);
+            return i;
+        } finally {
+            c.disconnect();
         }
     }
 
-    /** Title, channel and licence of one video (blocking). */
-    static VideoInfo info(Context ctx, String url) throws Exception {
+    /** Title, channel, length and licence (blocking, ~10 s); keeps yt-dlp's JSON for the download. */
+    static Info info(Context ctx, String url) throws Exception {
         ensureReady(ctx);
         YoutubeDLRequest r = new YoutubeDLRequest(url);
         r.addOption("--no-playlist");
-        return YoutubeDL.getInstance().getInfo(r);
+        r.addOption("-J");
+        long t0 = System.currentTimeMillis();
+        String out = YoutubeDL.getInstance().execute(r, null, null).getOut();
+        Log.i(App.TAG, "yt-dlp info " + (System.currentTimeMillis() - t0) + " ms");
+        String json = out.substring(out.indexOf('{'));
+        org.json.JSONObject j = new org.json.JSONObject(json);
+        Info i = new Info();
+        i.title = j.optString("title", null);
+        i.uploader = j.isNull("uploader") ? j.optString("channel", null) : j.optString("uploader", null);
+        i.duration = j.optInt("duration", 0);
+        i.license = j.isNull("license") ? null : j.optString("license", null);
+        File dir = new File(ctx.getCacheDir(), "info");
+        dir.mkdirs();
+        File[] old = dir.listFiles();
+        if (old != null) for (File f : old) {
+            //noinspection ResultOfMethodCallIgnored
+            if (System.currentTimeMillis() - f.lastModified() > INFO_MAX_AGE) f.delete();
+        }
+        File f = new File(dir, safeName(j.optString("id", "video")) + ".json");
+        try (OutputStream o = new FileOutputStream(f)) {
+            o.write(json.getBytes("UTF-8"));
+        }
+        i.json = f;
+        return i;
     }
 
     /** One playlist: its title and the videos in it (id + title), without downloading anything. */
@@ -149,8 +217,12 @@ final class Downloads {
         return p;
     }
 
-    static synchronized Job enqueue(Context ctx, String url, String title, int mode) {
-        Job job = new Job(++nextId, url, title, mode);
+    static Job enqueue(Context ctx, String url, String title, int mode) {
+        return enqueue(ctx, url, title, mode, null);
+    }
+
+    static synchronized Job enqueue(Context ctx, String url, String title, int mode, File infoJson) {
+        Job job = new Job(++nextId, url, title, mode, infoJson);
         jobs.add(0, job);
         Context app = ctx.getApplicationContext();
         DownloadService.start(app);
@@ -178,7 +250,9 @@ final class Downloads {
         if (job.cancelled) return;
         job.state = RUNNING;
         job.status = "Priprema…";
-        File dir = new File(ctx.getCacheDir(), "dl/" + job.id);
+        // Not in getCacheDir(): when the phone is nearly full Android empties app caches on its
+        // own, and the half-done video vanished in the middle of a download.
+        File dir = new File(workRoot(ctx), String.valueOf(job.id));
         try {
             ensureReady(ctx);
             deleteTree(dir);
@@ -187,7 +261,7 @@ final class Downloads {
                 fetch(job, dir, "ba[ext=m4a]/ba", "Zvuk");
                 File f = only(dir);
                 job.status = "Čuvanje…";
-                save(ctx, job, f, ext(f.getName()));
+                save(ctx, job, ext(f.getName()), fd -> copy(f, fd));
             } else {
                 int h = job.mode == VIDEO_1080 ? 1080 : 720;
                 boolean split;
@@ -203,7 +277,6 @@ final class Downloads {
                     fetch(job, dir, "b[ext=mp4][height<=" + h + "]/b[ext=mp4]/b", "Video");
                     split = false;
                 }
-                File out;
                 if (split) {
                     File v = null, a = null;
                     File[] files = dir.listFiles();
@@ -214,13 +287,14 @@ final class Downloads {
                     if (v == null || a == null) throw new IOException("nedostaje video ili zvuk");
                     job.status = "Spajanje slike i zvuka…";
                     job.progress = -1;
-                    out = new File(dir, "joined.mp4");
-                    mux(v, a, out);
+                    // Joined straight into Download/MarkTube: no temporary copy of the whole video.
+                    File fv = v, fa = a;
+                    save(ctx, job, "mp4", fd -> mux(fv, fa, fd));
                 } else {
-                    out = only(dir);
+                    File out = only(dir);
+                    job.status = "Čuvanje…";
+                    save(ctx, job, ext(out.getName()), fd -> copy(out, fd));
                 }
-                job.status = "Čuvanje…";
-                save(ctx, job, out, ext(out.getName()));
             }
             job.state = DONE;
             job.progress = 100;
@@ -241,7 +315,31 @@ final class Downloads {
     }
 
     private static void fetch(Job job, File dir, String format, String label) throws Exception {
-        YoutubeDLRequest r = new YoutubeDLRequest(job.url);
+        File json = job.infoJson;
+        if (json != null && json.isFile() && System.currentTimeMillis() - json.lastModified() < INFO_MAX_AGE) {
+            try {
+                fetch(job, dir, format, label, json);
+                return;
+            } catch (Exception e) {
+                if (job.cancelled) throw e;
+                // The links in the saved info may have expired or lack this format: ask YouTube again.
+                Log.w(App.TAG, "saved info failed, extracting again", e);
+                deleteTree(dir);
+                dir.mkdirs();
+            }
+        }
+        fetch(job, dir, format, label, null);
+    }
+
+    private static void fetch(Job job, File dir, String format, String label, File json) throws Exception {
+        YoutubeDLRequest r;
+        if (json != null) {
+            // Skips the ~10 s of asking YouTube about the video: "Proveri snimak" already did.
+            r = new YoutubeDLRequest(java.util.Collections.emptyList());
+            r.addOption("--load-info-json", json.getAbsolutePath());
+        } else {
+            r = new YoutubeDLRequest(job.url);
+        }
         r.addOption("--no-playlist");
         r.addOption("--no-mtime");
         r.addOption("--no-part");
@@ -263,7 +361,7 @@ final class Downloads {
     }
 
     /** Joins an H.264 video-only MP4 and an AAC audio file into one MP4, interleaved by time. */
-    static void mux(File video, File audio, File out) throws IOException {
+    static void mux(File video, File audio, java.io.FileDescriptor out) throws IOException {
         MediaExtractor ve = new MediaExtractor();
         MediaExtractor ae = new MediaExtractor();
         MediaMuxer m = null;
@@ -275,7 +373,7 @@ final class Downloads {
             if (vt < 0 || at < 0) throw new IOException("neispravan snimak");
             ve.selectTrack(vt);
             ae.selectTrack(at);
-            m = new MediaMuxer(out.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            m = new MediaMuxer(out, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
             int vo = m.addTrack(ve.getTrackFormat(vt));
             int ao = m.addTrack(ae.getTrackFormat(at));
             m.start();
@@ -317,8 +415,23 @@ final class Downloads {
         return -1;
     }
 
-    /** Copies the finished file to Download/MarkTube (MediaStore on Android 10+). */
-    private static void save(Context ctx, Job job, File src, String ext) throws IOException {
+    /** Where yt-dlp puts the streams while downloading (never purged by the system, unlike the cache). */
+    private static File workRoot(Context ctx) {
+        return new File(ctx.getNoBackupFilesDir(), "dl");
+    }
+
+    /** Leftovers of downloads that were killed with the app (called once per process, nothing running yet). */
+    private static void cleanWork(Context ctx) {
+        deleteTree(workRoot(ctx));
+        deleteTree(new File(ctx.getCacheDir(), "dl")); // older versions worked in the cache
+    }
+
+    interface Sink {
+        void write(java.io.FileDescriptor fd) throws IOException;
+    }
+
+    /** Writes the finished file into Download/MarkTube (MediaStore on Android 10+). */
+    private static void save(Context ctx, Job job, String ext, Sink sink) throws IOException {
         String name = safeName(job.title) + "." + ext;
         String mime = mime(ext, job.mode == AUDIO);
         if (Build.VERSION.SDK_INT >= 29) {
@@ -330,10 +443,10 @@ final class Downloads {
             cv.put(MediaStore.MediaColumns.IS_PENDING, 1);
             Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
             if (uri == null) throw new IOException("ne mogu da napravim fajl");
-            try (InputStream in = new FileInputStream(src); OutputStream out = cr.openOutputStream(uri)) {
-                if (out == null) throw new IOException("ne mogu da pišem fajl");
-                copy(in, out);
-            } catch (IOException e) {
+            try (android.os.ParcelFileDescriptor pfd = cr.openFileDescriptor(uri, "rw")) {
+                if (pfd == null) throw new IOException("ne mogu da pišem fajl");
+                sink.write(pfd.getFileDescriptor());
+            } catch (IOException | RuntimeException e) {
                 cr.delete(uri, null, null);
                 throw e;
             }
@@ -346,8 +459,13 @@ final class Downloads {
             File dir = new File(ctx.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "MarkTube");
             dir.mkdirs();
             File dst = new File(dir, name);
-            try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
-                copy(in, out);
+            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(dst, "rw")) {
+                raf.setLength(0);
+                sink.write(raf.getFD());
+            } catch (IOException | RuntimeException e) {
+                //noinspection ResultOfMethodCallIgnored
+                dst.delete();
+                throw e;
             }
             job.resultPath = dst.getAbsolutePath();
         }
@@ -385,6 +503,12 @@ final class Downloads {
         return s.length() > 120 ? s.substring(0, 120) : s;
     }
 
+    private static void copy(File src, java.io.FileDescriptor fd) throws IOException {
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(fd)) {
+            copy(in, out);
+        }
+    }
+
     private static void copy(InputStream in, OutputStream out) throws IOException {
         byte[] b = new byte[256 * 1024];
         int n;
@@ -411,6 +535,7 @@ final class Downloads {
         if (m.contains("Private video")) return "privatan snimak";
         if (m.contains("members-only") || m.contains("Join this channel")) return "snimak je samo za članove kanala";
         if (m.contains("DRM")) return "snimak je zaštićen (DRM) i ne može da se preuzme";
+        if (m.contains("ENOSPC") || m.contains("No space left")) return "nema dovoljno mesta na telefonu";
         return m.length() > 160 ? m.substring(0, 160) + "…" : m;
     }
 }

@@ -31,8 +31,6 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.yausername.youtubedl_android.mapper.VideoInfo;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,9 +55,15 @@ public class DownloadActivity extends Activity {
     private Button downloadButton;
     private LinearLayout jobList;
 
+    private Button checkButton;
     private String checkedUrl;
-    private VideoInfo info;
+    /** Full info from yt-dlp (licence, length, JSON reused by the download). */
+    private Downloads.Info info;
+    /** Title + channel from the quick lookup, shown while yt-dlp is still working. */
+    private Downloads.Info quick;
     private int infoRequest;
+    private long checkStarted;
+    private final Runnable checkTick = this::showChecking;
     /** Playlist of the link (list=...), if any, and its videos once listed. */
     private String listUrl;
     private Downloads.Playlist playlist;
@@ -123,11 +127,11 @@ public class DownloadActivity extends Activity {
         Button paste = button("Nalepi link", false);
         paste.setOnClickListener(v -> pasteLink());
         row.addView(paste, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        Button check = button("Proveri snimak", false);
-        check.setOnClickListener(v -> loadInfo(true));
+        checkButton = button("Proveri snimak", false);
+        checkButton.setOnClickListener(v -> loadInfo(true));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         lp.leftMargin = dp(8);
-        row.addView(check, lp);
+        row.addView(checkButton, lp);
         addSpaced(col, row, 8);
 
         infoView = text("", 14, TEXT);
@@ -194,6 +198,9 @@ public class DownloadActivity extends Activity {
             @Override public void afterTextChanged(Editable s) {
                 if (!s.toString().trim().equals(checkedUrl)) {
                     info = null;
+                    quick = null;
+                    infoRequest++;
+                    stopChecking();
                     playlist = null;
                     listUrl = null;
                     wholeList.setChecked(false);
@@ -274,6 +281,13 @@ public class DownloadActivity extends Activity {
         main.removeCallbacks(tick);
     }
 
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // The daily yt-dlp update runs here, so it never delays a check or a download.
+        if (isFinishing()) Downloads.updateIfDue(this);
+    }
+
     // ---- Notice shown before the first download ----
 
     private void showNotice() {
@@ -327,17 +341,40 @@ public class DownloadActivity extends Activity {
                     + "ili nalepi link oblika youtube.com/watch?v=…", false);
             return;
         }
+        // Same link already checked (or being checked): don't start over, just show it.
+        if (raw.equals(checkedUrl) && (info != null || checkStarted != 0)) {
+            showCurrentInfo();
+            return;
+        }
         checkedUrl = raw;
         info = null;
+        quick = null;
         updateButton();
         int req = ++infoRequest;
-        showInfo("Proveravam snimak… (prvi put traje malo duže)", false);
+        checkStarted = System.currentTimeMillis();
+        checkButton.setEnabled(false);
+        checkButton.setAlpha(0.5f);
+        showChecking();
         Context app = getApplicationContext();
         new Thread(() -> {
             try {
-                VideoInfo vi = Downloads.info(app, url);
+                Downloads.Info q = Downloads.quickInfo(url);
+                main.post(() -> {
+                    if (req != infoRequest || isDestroyed() || info != null) return;
+                    quick = q;
+                    showChecking();
+                    updateButton();
+                });
+            } catch (Throwable t) {
+                // Not essential: the full check below still runs.
+            }
+        }, "dl-quick").start();
+        new Thread(() -> {
+            try {
+                Downloads.Info vi = Downloads.info(app, url);
                 main.post(() -> {
                     if (req != infoRequest || isDestroyed()) return;
+                    stopChecking();
                     info = vi;
                     showCurrentInfo();
                     updateButton();
@@ -345,10 +382,42 @@ public class DownloadActivity extends Activity {
             } catch (Throwable t) {
                 main.post(() -> {
                     if (req != infoRequest || isDestroyed()) return;
-                    showInfo("Ne mogu da proverim snimak: " + Downloads.shortError(t), false);
+                    stopChecking();
+                    if (quick != null) {
+                        // The download asks YouTube itself again; the title is known, so allow it.
+                        showInfo(describeQuick(quick) + "\n\nLicencu nisam mogao da proverim ("
+                                + Downloads.shortError(t) + "). Preuzmi samo ako je snimak tvoj ili imaš dozvolu autora.", true);
+                    } else {
+                        showInfo("Ne mogu da proverim snimak: " + Downloads.shortError(t), false);
+                    }
                 });
             }
         }, "dl-info").start();
+    }
+
+    /** Status while yt-dlp checks the video: the quick title if known, and the seconds so far. */
+    private void showChecking() {
+        main.removeCallbacks(checkTick);
+        if (checkStarted == 0 || wholeList.isChecked()) return;
+        long s = (System.currentTimeMillis() - checkStarted) / 1000;
+        if (quick != null) {
+            showInfo(describeQuick(quick) + "\n\nLicenca: proveravam… " + s + " s\n"
+                    + "(možeš odmah da preuzmeš)", true);
+        } else {
+            showInfo("Proveravam snimak… " + s + " s", false);
+        }
+        main.postDelayed(checkTick, 1000);
+    }
+
+    private void stopChecking() {
+        checkStarted = 0;
+        main.removeCallbacks(checkTick);
+        checkButton.setEnabled(true);
+        checkButton.setAlpha(1f);
+    }
+
+    private static String describeQuick(Downloads.Info q) {
+        return (q.title == null ? "(bez naslova)" : q.title) + (q.uploader != null ? "\n" + q.uploader : "");
     }
 
     private void loadPlaylist() {
@@ -394,16 +463,18 @@ public class DownloadActivity extends Activity {
             showInfo(s.toString(), true);
         } else if (info != null) {
             showInfo(describe(info), true);
+        } else if (checkStarted != 0) {
+            showChecking();
         }
     }
 
-    private static String describe(VideoInfo vi) {
+    private static String describe(Downloads.Info vi) {
         StringBuilder s = new StringBuilder();
-        s.append(vi.getTitle() == null ? "(bez naslova)" : vi.getTitle());
-        if (vi.getUploader() != null) s.append("\n").append(vi.getUploader());
-        int d = vi.getDuration();
+        s.append(vi.title == null ? "(bez naslova)" : vi.title);
+        if (vi.uploader != null) s.append("\n").append(vi.uploader);
+        int d = vi.duration;
         if (d > 0) s.append(String.format(java.util.Locale.ROOT, "  ·  %d:%02d", d / 60, d % 60));
-        String lic = vi.getLicense();
+        String lic = vi.license;
         s.append("\n\nLicenca: ");
         if (lic != null && lic.toLowerCase().contains("creative commons")) {
             s.append(lic).append(" — autor dozvoljava ponovno korišćenje (navedi autora).");
@@ -421,7 +492,8 @@ public class DownloadActivity extends Activity {
     }
 
     private void updateButton() {
-        boolean ready = wholeList.isChecked() ? playlist != null && !playlist.entries.isEmpty() : info != null;
+        boolean ready = wholeList.isChecked() ? playlist != null && !playlist.entries.isEmpty()
+                : info != null || quick != null;
         boolean ok = ready && allowed.isChecked();
         downloadButton.setEnabled(ok);
         downloadButton.setAlpha(ok ? 1f : 0.4f);
@@ -437,10 +509,11 @@ public class DownloadActivity extends Activity {
             renderJobs();
             return;
         }
-        if (info == null) return;
+        Downloads.Info i = info != null ? info : quick;
+        if (i == null) return;
         String url = videoUrl(urlField.getText().toString());
         if (url == null) return;
-        Downloads.enqueue(this, url, info.getTitle(), modeGroup.getCheckedRadioButtonId());
+        Downloads.enqueue(this, url, i.title, modeGroup.getCheckedRadioButtonId(), info != null ? info.json : null);
         allowed.setChecked(false);
         renderJobs();
     }
