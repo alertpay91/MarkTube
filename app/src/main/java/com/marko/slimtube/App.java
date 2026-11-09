@@ -39,8 +39,12 @@ public class App extends Application {
     private static final String[][] EXTENSIONS = {
             {"uBlock0@raymondhill.net", "ublock-origin"},
             {"sponsorBlocker@ajay.app", "sponsorblock"},
-            {"video-bg-play@timdream.org", "video-background-play-fix"},
     };
+    /**
+     * Installed by older versions. Background play is done by the helper now (bg.js): this
+     * add-on together with uBlock Origin delayed every video start by about 5 seconds.
+     */
+    private static final String[] REMOVED_EXTENSIONS = {"video-bg-play@timdream.org"};
 
     private static GeckoRuntime runtime;
     private static Context appContext;
@@ -161,6 +165,14 @@ public class App extends Application {
                 for (WebExtension ext : installed) {
                     ids.add(ext.id);
                     Log.i(TAG, "extension installed: " + ext.id + " enabled=" + ext.metaData.enabled);
+                    if (java.util.Arrays.asList(REMOVED_EXTENSIONS).contains(ext.id)) {
+                        controller.uninstall(ext).accept(v -> Log.i(TAG, "removed " + ext.id),
+                                e -> Log.w(TAG, "remove failed " + ext.id, e));
+                        continue;
+                    }
+                    if (!ext.isBuiltIn && !ext.metaData.enabled) {
+                        controller.enable(ext, WebExtensionController.EnableSource.USER);
+                    }
                     if (checkUpdates && !ext.isBuiltIn) {
                         // Later, when the page has loaded.
                         main.postDelayed(() -> controller.update(ext)

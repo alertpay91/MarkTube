@@ -214,7 +214,7 @@ allowed to download. Use it in line with the law and the terms of the services y
   (GPL-3.0), which bundles Python (PSF License), QuickJS (MIT) and
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense). Because of that library, the APK as a
   whole is distributed under the GPL-3.0; MarkTube's own source code stays MIT.
-- uBlock Origin, SponsorBlock and Video Background Play Fix are
+- uBlock Origin and SponsorBlock are
   downloaded at runtime from addons.mozilla.org. They belong to their authors and keep their own
   licenses.
 - The "Get it on Obtainium" badge comes from the

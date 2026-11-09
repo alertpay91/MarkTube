@@ -268,11 +268,12 @@
       el.removeAttribute("aria-selected");
       el.classList.remove("pivot-bar-item-tab-selected", "selected");
     }
-    const svg = item.querySelector("svg");
-    if (svg) {
+    // The last tab is "You", whose icon is the account picture (an <img>), not an <svg>.
+    const pic = item.querySelector("svg, img, ytm-profile-icon, c3-icon");
+    if (pic) {
       const holder = document.createElement("span");
-      holder.innerHTML = DL_ICON;
-      svg.replaceWith(holder.firstChild);
+      holder.innerHTML = DL_ICON_BOLD;
+      pic.replaceWith(holder.firstChild);
     }
     const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
     let first = true;
@@ -286,6 +287,24 @@
     items[items.length - 1].after(item);
   }
   setInterval(() => { try { addDownloadTab(); } catch (e) { } }, 1000);
+
+  // Like the app: tapping "Home" while on the home page goes to the top, and tapping it again
+  // at the top loads fresh recommendations.
+  document.addEventListener("click", (e) => {
+    if (location.pathname !== "/") return;
+    const item = e.target.closest && e.target.closest("ytm-pivot-bar-item-renderer");
+    if (!item || item.classList.contains("marktube-dl")) return;
+    const bar = item.parentElement;
+    if (!bar || bar.querySelector("ytm-pivot-bar-item-renderer") !== item) return; // first tab = Home
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (window.scrollY > 50) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      port.postMessage({ type: "log", text: "home tab refresh" });
+      location.reload();
+    }
+  }, true);
   // On a normal video page YouTube hides the bottom tab bar, so the "Preuzmi" tab is not
   // there. Put the same icon into the row under the video (like / dislike / share ...).
   const DL_ICON_BOLD = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="pointer-events:none;display:block">'
