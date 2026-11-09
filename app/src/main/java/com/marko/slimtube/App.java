@@ -43,6 +43,7 @@ public class App extends Application {
     };
 
     private static GeckoRuntime runtime;
+    private static Context appContext;
     private static GeckoSession session;
 
     // Current media state, read by PlaybackService.
@@ -79,7 +80,10 @@ public class App extends Application {
         if (runtime == null) {
             GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                     .consoleOutput(false)
+                    // Dark from the first frame: no white page while YouTube is still loading.
+                    .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK)
                     .build();
+            appContext = ctx.getApplicationContext();
             runtime = GeckoRuntime.create(ctx.getApplicationContext(), settings);
             setupExtensions(runtime);
         }
@@ -147,11 +151,21 @@ public class App extends Application {
 
         controller.list().accept(installed -> {
             Set<String> ids = new HashSet<>();
+            // Checking all add-ons for updates on every start competes with YouTube's first
+            // load; once a day is plenty.
+            android.content.SharedPreferences prefs =
+                    appContext.getSharedPreferences("app", Context.MODE_PRIVATE);
+            boolean checkUpdates = System.currentTimeMillis() - prefs.getLong("extUpdate", 0) > 24L * 3600 * 1000;
+            if (checkUpdates) prefs.edit().putLong("extUpdate", System.currentTimeMillis()).apply();
             if (installed != null) {
                 for (WebExtension ext : installed) {
                     ids.add(ext.id);
                     Log.i(TAG, "extension installed: " + ext.id + " enabled=" + ext.metaData.enabled);
-                    controller.update(ext).accept(null, e -> Log.w(TAG, "update failed " + ext.id, e));
+                    if (checkUpdates && !ext.isBuiltIn) {
+                        // Later, when the page has loaded.
+                        main.postDelayed(() -> controller.update(ext)
+                                .accept(null, e -> Log.w(TAG, "update failed " + ext.id, e)), 20000);
+                    }
                 }
             }
             List<GeckoResult<WebExtension>> pending = new ArrayList<>();

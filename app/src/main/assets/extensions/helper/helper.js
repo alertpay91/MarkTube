@@ -316,6 +316,45 @@
   }
   setInterval(() => { try { addWatchDownload(); } catch (e) { } }, 1000);
 
+  // A playlist or mix open under the video covers the row above, so its header (next to
+  // loop / shuffle) gets a button that downloads the whole list. "#playlist" tells the
+  // download screen to select "Cela plejlista".
+  const playlistLink = () => {
+    const u = new URL(location.href);
+    if (!u.searchParams.get("list")) return null;
+    u.hash = "playlist";
+    return u.toString();
+  };
+  function addPanelDownload() {
+    if (!location.search.includes("list=")) return;
+    for (const row of document.querySelectorAll(".playlist-engagement-panel-top-level-buttons")) {
+      if (row.querySelector(".marktube-dl-list")) continue;
+      const model = row.querySelector("ytm-toggle-button-renderer, ytm-playlist-loop-button-renderer");
+      if (!model) continue;
+      const item = model.cloneNode(true);
+      item.classList.add("marktube-dl-list");
+      for (const el of [item, ...item.querySelectorAll("*")]) {
+        el.removeAttribute("id");
+        el.removeAttribute("aria-pressed");
+      }
+      const icon = item.querySelector("c3-icon, yt-icon, .ytSpecButtonShapeNextIcon");
+      if (icon) {
+        const holder = document.createElement("span");
+        holder.innerHTML = DL_ICON_BOLD;
+        icon.replaceChildren(holder.firstChild);
+      }
+      const btn = item.querySelector("button") || item;
+      btn.setAttribute("aria-label", "Preuzmi plejlistu");
+      btn.setAttribute("title", "Preuzmi plejlistu");
+      guardTap(item, () => {
+        const url = playlistLink();
+        if (url) port.postMessage({ type: "download", url });
+      });
+      row.appendChild(item);
+    }
+  }
+  setInterval(() => { try { addPanelDownload(); } catch (e) { } }, 1000);
+
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
       let closed = null;

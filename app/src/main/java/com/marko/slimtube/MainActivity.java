@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
         android.widget.LinearLayout column = new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         geckoView = new GeckoView(this);
+        // YouTube's dark background until the page has drawn (instead of a white surface).
+        geckoView.coverUntilFirstPaint(0xFF0F0F0F);
         column.addView(geckoView, new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         tabBar = buildTabBar();
@@ -163,8 +165,11 @@ public class MainActivity extends Activity {
     /** Opens the "Preuzimanje" screen, filled in with the video that is open (if any). */
     void openDownloads(String pageUrl) {
         Intent i = new Intent(this, DownloadActivity.class);
-        String url = DownloadActivity.videoUrl(pageUrl != null ? pageUrl : currentUrl);
-        if (url == null) url = DownloadActivity.videoUrl(currentUrl);
+        String page = pageUrl != null ? pageUrl : currentUrl;
+        // Keep the whole page link when it belongs to a playlist (list=…), so the download
+        // screen can offer the playlist too.
+        String url = DownloadActivity.playlistUrl(page) != null ? page : DownloadActivity.videoUrl(page);
+        if (url == null) url = DownloadActivity.playlistUrl(currentUrl) != null ? currentUrl : DownloadActivity.videoUrl(currentUrl);
         if (url != null) i.putExtra(DownloadActivity.EXTRA_URL, url);
         startActivity(i);
     }

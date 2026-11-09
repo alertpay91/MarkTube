@@ -53,12 +53,17 @@ public class DownloadActivity extends Activity {
     private TextView infoView;
     private RadioGroup modeGroup;
     private CheckBox allowed;
+    private CheckBox wholeList;
     private Button downloadButton;
     private LinearLayout jobList;
 
     private String checkedUrl;
     private VideoInfo info;
     private int infoRequest;
+    /** Playlist of the link (list=...), if any, and its videos once listed. */
+    private String listUrl;
+    private Downloads.Playlist playlist;
+    private int listRequest;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,6 +136,21 @@ public class DownloadActivity extends Activity {
         infoView.setVisibility(View.GONE);
         addSpaced(col, infoView, 12);
 
+        wholeList = new CheckBox(this);
+        wholeList.setText("Cela plejlista");
+        wholeList.setTextColor(TEXT);
+        wholeList.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        wholeList.setVisibility(View.GONE);
+        wholeList.setOnCheckedChangeListener((b, c) -> {
+            allowed.setChecked(false);
+            allowed.setText(c ? "Imam pravo da preuzmem sve snimke sa ove plejliste i preuzimam ih na sopstvenu odgovornost."
+                    : "Imam pravo da preuzmem ovaj snimak i preuzimam ga na sopstvenu odgovornost.");
+            if (c && playlist == null) loadPlaylist();
+            showCurrentInfo();
+            updateButton();
+        });
+        addSpaced(col, wholeList, 8);
+
         modeGroup = new RadioGroup(this);
         modeGroup.addView(radio(Downloads.VIDEO_720, "Video, do 720p (MP4)"));
         modeGroup.addView(radio(Downloads.VIDEO_1080, "Video, do 1080p (MP4)"));
@@ -174,6 +194,10 @@ public class DownloadActivity extends Activity {
             @Override public void afterTextChanged(Editable s) {
                 if (!s.toString().trim().equals(checkedUrl)) {
                     info = null;
+                    playlist = null;
+                    listUrl = null;
+                    wholeList.setChecked(false);
+                    wholeList.setVisibility(View.GONE);
                     allowed.setChecked(false);
                     infoView.setVisibility(View.GONE);
                     updateButton();
@@ -202,9 +226,8 @@ public class DownloadActivity extends Activity {
                 if (m.find()) url = m.group();
             }
         }
-        url = videoUrl(url);
-        if (url != null) {
-            urlField.setText(url);
+        if (url != null && (videoUrl(url) != null || playlistUrl(url) != null)) {
+            urlField.setText(url.trim());
             loadInfo(false);
         }
     }
@@ -223,6 +246,20 @@ public class DownloadActivity extends Activity {
         Matcher m = Pattern.compile("^/(shorts|live)/([^/?#]+)").matcher(path);
         if (m.find()) return "https://www.youtube.com/watch?v=" + m.group(2);
         return null;
+    }
+
+    /** The playlist or mix a link belongs to (list=...), as a link yt-dlp can list. */
+    static String playlistUrl(String url) {
+        if (url == null) return null;
+        Uri u = Uri.parse(url.trim());
+        String host = u.getHost() == null ? "" : u.getHost().toLowerCase();
+        if (!host.endsWith("youtube.com") && !host.endsWith("youtu.be")) return null;
+        String list = u.getQueryParameter("list");
+        if (list == null || list.isEmpty() || list.equals("WL") || list.equals("LL")) return null;
+        String v = u.getQueryParameter("v");
+        // A mix (RD...) only exists around a video; normal playlists have their own page.
+        if (list.startsWith("RD") && v != null) return "https://www.youtube.com/watch?v=" + v + "&list=" + list;
+        return "https://www.youtube.com/playlist?list=" + list;
     }
 
     @Override
@@ -271,6 +308,20 @@ public class DownloadActivity extends Activity {
     private void loadInfo(boolean showErrors) {
         String raw = urlField.getText().toString().trim();
         String url = videoUrl(raw);
+        String list = playlistUrl(raw);
+        if (list != null && !list.equals(listUrl)) {
+            listUrl = list;
+            playlist = null;
+            wholeList.setVisibility(View.VISIBLE);
+            // A link to a playlist page (no single video): the playlist is all there is.
+            // "#playlist": opened from the playlist's own download button.
+            wholeList.setChecked(url == null || raw.endsWith("#playlist"));
+            wholeList.setEnabled(url != null);
+        }
+        if (url == null && list != null) {
+            checkedUrl = raw;
+            return;
+        }
         if (url == null) {
             if (showErrors) showInfo("Ovo nije link ka jednom snimku. Otvori snimak pa dodirni Preuzmi, "
                     + "ili nalepi link oblika youtube.com/watch?v=…", false);
@@ -288,7 +339,7 @@ public class DownloadActivity extends Activity {
                 main.post(() -> {
                     if (req != infoRequest || isDestroyed()) return;
                     info = vi;
-                    showInfo(describe(vi), true);
+                    showCurrentInfo();
                     updateButton();
                 });
             } catch (Throwable t) {
@@ -298,6 +349,52 @@ public class DownloadActivity extends Activity {
                 });
             }
         }, "dl-info").start();
+    }
+
+    private void loadPlaylist() {
+        String url = listUrl;
+        if (url == null) return;
+        int req = ++listRequest;
+        showInfo("Učitavam spisak snimaka sa plejliste…", false);
+        Context app = getApplicationContext();
+        new Thread(() -> {
+            try {
+                Downloads.Playlist p = Downloads.playlist(app, url);
+                main.post(() -> {
+                    if (req != listRequest || isDestroyed() || !url.equals(listUrl)) return;
+                    playlist = p;
+                    showCurrentInfo();
+                    updateButton();
+                });
+            } catch (Throwable t) {
+                main.post(() -> {
+                    if (req != listRequest || isDestroyed()) return;
+                    showInfo("Ne mogu da učitam plejlistu: " + Downloads.shortError(t), false);
+                });
+            }
+        }, "dl-list").start();
+    }
+
+    /** Shows the single video or the playlist, whichever is selected and already known. */
+    private void showCurrentInfo() {
+        if (wholeList.isChecked()) {
+            if (playlist == null) return; // still loading; loadPlaylist shows its own status
+            StringBuilder s = new StringBuilder();
+            s.append("Plejlista: ").append(playlist.title).append("\n")
+                    .append(playlist.entries.size()).append(" snimaka");
+            if (playlist.entries.size() >= Downloads.PLAYLIST_MAX) s.append(" (najviše ").append(Downloads.PLAYLIST_MAX).append(")");
+            if (listUrl != null && listUrl.contains("list=RD")) s.append(" — miks, uzima se prvi deo");
+            s.append("\n");
+            int n = 0;
+            for (String[] e : playlist.entries) {
+                if (++n > 8) { s.append("\n…"); break; }
+                s.append("\n").append(n).append(". ").append(e[1]);
+            }
+            s.append("\n\nPreuzimaju se jedan po jedan. Preuzmi samo snimke koje imaš pravo da preuzmeš.");
+            showInfo(s.toString(), true);
+        } else if (info != null) {
+            showInfo(describe(info), true);
+        }
     }
 
     private static String describe(VideoInfo vi) {
@@ -324,13 +421,23 @@ public class DownloadActivity extends Activity {
     }
 
     private void updateButton() {
-        boolean ok = info != null && allowed.isChecked();
+        boolean ready = wholeList.isChecked() ? playlist != null && !playlist.entries.isEmpty() : info != null;
+        boolean ok = ready && allowed.isChecked();
         downloadButton.setEnabled(ok);
         downloadButton.setAlpha(ok ? 1f : 0.4f);
     }
 
     private void startDownload() {
-        if (info == null || !allowed.isChecked()) return;
+        if (!allowed.isChecked()) return;
+        if (wholeList.isChecked()) {
+            if (playlist == null) return;
+            int mode = modeGroup.getCheckedRadioButtonId();
+            for (String[] e : playlist.entries) Downloads.enqueue(this, e[0], e[1], mode);
+            allowed.setChecked(false);
+            renderJobs();
+            return;
+        }
+        if (info == null) return;
         String url = videoUrl(urlField.getText().toString());
         if (url == null) return;
         Downloads.enqueue(this, url, info.getTitle(), modeGroup.getCheckedRadioButtonId());

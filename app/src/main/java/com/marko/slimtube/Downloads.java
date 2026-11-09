@@ -115,6 +115,40 @@ final class Downloads {
         return YoutubeDL.getInstance().getInfo(r);
     }
 
+    /** One playlist: its title and the videos in it (id + title), without downloading anything. */
+    static final class Playlist {
+        String title;
+        final List<String[]> entries = new java.util.ArrayList<>(); // {watch URL, title}
+    }
+
+    static final int PLAYLIST_MAX = 200;
+
+    /** Lists a playlist or mix (blocking). Mixes are endless; yt-dlp returns their first batch. */
+    static Playlist playlist(Context ctx, String url) throws Exception {
+        ensureReady(ctx);
+        YoutubeDLRequest r = new YoutubeDLRequest(url);
+        r.addOption("--yes-playlist");
+        r.addOption("--flat-playlist");
+        r.addOption("--playlist-end", String.valueOf(PLAYLIST_MAX));
+        r.addOption("-J");
+        String out = YoutubeDL.getInstance().execute(r, null, null).getOut();
+        org.json.JSONObject j = new org.json.JSONObject(out.substring(out.indexOf('{')));
+        Playlist p = new Playlist();
+        p.title = j.optString("title", "Plejlista");
+        org.json.JSONArray entries = j.optJSONArray("entries");
+        if (entries != null) for (int i = 0; i < entries.length(); i++) {
+            org.json.JSONObject e = entries.optJSONObject(i);
+            if (e == null) continue;
+            String id = e.optString("id", "");
+            if (id.isEmpty()) continue;
+            String t = e.optString("title", "");
+            // Deleted / private videos show up with placeholder titles; skip them.
+            if (t.equals("[Deleted video]") || t.equals("[Private video]")) continue;
+            p.entries.add(new String[]{"https://www.youtube.com/watch?v=" + id, t.isEmpty() ? id : t});
+        }
+        return p;
+    }
+
     static synchronized Job enqueue(Context ctx, String url, String title, int mode) {
         Job job = new Job(++nextId, url, title, mode);
         jobs.add(0, job);
