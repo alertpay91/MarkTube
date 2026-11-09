@@ -22,7 +22,7 @@ import java.net.URL;
 
 /**
  * Tells the user when a newer MarkTube release is on GitHub (one notification per version;
- * tapping it opens the release page). The app deliberately does not download or install APKs
+ * tapping it opens the app, where UpdateBanner offers the download). The app does not install APKs
  * itself: Play Protect treats self-installing apps as "droppers". For fully automatic updates,
  * use an updater app such as Obtainium pointed at the GitHub repository.
  */
@@ -77,7 +77,8 @@ final class Updater {
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Ažuriranja",
                 NotificationManager.IMPORTANCE_DEFAULT));
-        Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // Opens the app, whose "new version" bar downloads the update in one tap (UpdateBanner).
+        Intent open = new Intent(ctx, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         nm.notify(NOTIF_ID, new Notification.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notif)
                 .setContentTitle("Nova verzija: " + name)

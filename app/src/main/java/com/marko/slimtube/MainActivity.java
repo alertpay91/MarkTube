@@ -369,6 +369,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        UpdateBanner.check(this, root); // "new version" bar, only while the app is open
         Updater.check(this);
         // The page stays loaded for as long as the process lives, so without this the feed
         // would show the same videos for days. Reload it after a while in the background.
