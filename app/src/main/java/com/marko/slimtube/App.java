@@ -94,6 +94,44 @@ public class App extends Application {
         return runtime;
     }
 
+    /** True while MainActivity is on screen. */
+    static boolean foreground;
+
+    static void setForeground(boolean fg) {
+        foreground = fg;
+        if (!hasSession()) return;
+        updateActive();
+        if (!fg) session.setFocused(false);
+        // The helper's checks (download buttons, sponsored Shorts) are only needed on screen.
+        WebExtension.Port port = helperPort;
+        if (port != null) {
+            try { port.postMessage(new JSONObject().put("type", "fg").put("value", fg)); } catch (Exception ignored) { }
+        }
+    }
+
+    /**
+     * The page is active on screen and while it plays in the background (an inactive page
+     * stops playing after a moment). Paused in the background, it goes inactive after a few
+     * seconds: Gecko then stops drawing it and slows its timers. Before, it stayed active and
+     * used ~18% of a core while paused, for as long as the process lived.
+     */
+    /** A page made inactive halfway through loading stays blank, so it may finish first. */
+    private static boolean loading;
+
+    private static final Runnable deactivate = () -> {
+        if (!foreground && !playing && !loading && hasSession()) {
+            Log.i(TAG, "page inactive (paused in background)");
+            session.setActive(false);
+        }
+    };
+
+    static void updateActive() {
+        if (!hasSession()) return;
+        main.removeCallbacks(deactivate);
+        if (foreground || playing) session.setActive(true);
+        else main.postDelayed(deactivate, 3000);
+    }
+
     static boolean hasSession() {
         return session != null && session.isOpen();
     }
@@ -107,6 +145,16 @@ public class App extends Application {
                     .build();
             session = new GeckoSession(settings);
             session.setMediaSessionDelegate(new MediaDelegate(ctx.getApplicationContext()));
+            session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+                @Override
+                public void onPageStart(GeckoSession s, String url) { loading = true; }
+
+                @Override
+                public void onPageStop(GeckoSession s, boolean success) {
+                    loading = false;
+                    if (!foreground) updateActive();
+                }
+            });
             session.open(runtime(ctx));
             attachHelper();
             session.loadUri(HOME);
@@ -209,6 +257,9 @@ public class App extends Application {
             @Override
             public void onConnect(WebExtension.Port port) {
                 helperPort = port;
+                if (!foreground) {
+                    try { port.postMessage(new JSONObject().put("type", "fg").put("value", false)); } catch (Exception ignored) { }
+                }
                 port.setDelegate(new WebExtension.PortDelegate() {
                     @Override
                     public void onPortMessage(Object message, WebExtension.Port p) {
@@ -331,6 +382,7 @@ public class App extends Application {
             Log.i(TAG, "gecko onPlay");
             media = ms;
             playing = true;
+            updateActive();
             PlaybackService.start(ctx);
         }
 
@@ -338,6 +390,7 @@ public class App extends Application {
         public void onPause(GeckoSession s, MediaSession ms) {
             Log.i(TAG, "gecko onPause");
             playing = false;
+            updateActive();
             PlaybackService.refresh(ctx);
         }
     }

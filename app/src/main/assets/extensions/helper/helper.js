@@ -98,7 +98,6 @@
       }
     }
   }
-  setInterval(() => { trackShorts(); try { skipAdShort(); } catch (e) { } }, 250);
   trackShorts();
 
   const PREV_LABEL = /^(previous video|prethodni video|претходни видео)$/i;
@@ -286,54 +285,79 @@
     guardTap(item, () => port.postMessage({ type: "download", url: location.href }));
     items[items.length - 1].after(item);
   }
-  setInterval(() => { try { addDownloadTab(); } catch (e) { } }, 1000);
 
-  // Like the app: tapping "Home" while on the home page goes to the top, and tapping it again
-  // at the top loads fresh recommendations.
+  // Tapping "Home" (or the YouTube logo) always brings a fresh home feed. The page is never
+  // reloaded on its own, only when the user asks for it like this (or pulls down).
   document.addEventListener("click", (e) => {
-    if (location.pathname !== "/") return;
-    const item = e.target.closest && e.target.closest("ytm-pivot-bar-item-renderer");
-    if (!item || item.classList.contains("marktube-dl")) return;
-    const bar = item.parentElement;
-    if (!bar || bar.querySelector("ytm-pivot-bar-item-renderer") !== item) return; // first tab = Home
+    if (!e.target.closest) return;
+    let home = false;
+    const item = e.target.closest("ytm-pivot-bar-item-renderer");
+    if (item && !item.classList.contains("marktube-dl")) {
+      const bar = item.parentElement;
+      home = !!bar && bar.querySelector("ytm-pivot-bar-item-renderer") === item; // first tab
+    }
+    const logo = e.target.closest("ytm-home-logo, a[aria-label='YouTube Home'], button[aria-label='YouTube Home']");
+    if (!home && !logo) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (window.scrollY > 50) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      port.postMessage({ type: "log", text: "home tab refresh" });
-      location.reload();
-    }
+    port.postMessage({ type: "log", text: "home refresh" });
+    if (location.pathname === "/") location.reload();
+    else location.assign("/");
   }, true);
   // On a normal video page YouTube hides the bottom tab bar, so the "Preuzmi" tab is not
   // there. Put the same icon into the row under the video (like / dislike / share ...).
   const DL_ICON_BOLD = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="pointer-events:none;display:block">'
     + '<path d="M11.25 3.5h1.5v10.69l3.72-3.72 1.06 1.06L12 17.06l-5.53-5.53 1.06-1.06 3.72 3.72zM5 19h14v1.5H5z"/></svg>';
+  const SHARE_LABEL = /^(share|podeli|подели|dijeli|deli)$/i;
   function addWatchDownload() {
     if (!location.pathname.startsWith("/watch")) return;
-    const bar = document.querySelector("ytm-slim-video-action-bar-renderer .slim-video-action-bar-actions")
-      || document.querySelector("ytm-slim-video-action-bar-renderer");
-    if (!bar || bar.querySelector(".marktube-dl-watch")) return;
-    const buttons = [...bar.querySelectorAll("button-view-model.slim_video_action_bar_renderer_button")];
-    const share = buttons.find((b) => !b.matches(".slim-action-more-button, .you-chat-entrypoint-button"))
-      || buttons[0];
-    if (!share) return;
-    const item = share.cloneNode(true);
-    item.classList.add("marktube-dl-watch");
-    item.classList.remove("you-chat-entrypoint-button", "slim-action-more-button");
-    const icon = item.querySelector("c3-icon, yt-icon, .ytSpecButtonShapeNextIcon");
-    if (icon) {
-      const holder = document.createElement("span");
-      holder.innerHTML = DL_ICON_BOLD;
-      icon.replaceChildren(holder.firstChild);
+    // Two layouts exist: the older "slim" action bar and the newer compact one (like /
+    // dislike / share / ... next to the channel), which some phones and accounts get.
+    const rows = document.querySelectorAll(".ytCompactifyVideoActionBarViewModelActionButtons, "
+      + "ytm-slim-video-action-bar-renderer .slim-video-action-bar-actions");
+    for (const row of rows) {
+      if (row.querySelector(".marktube-dl-watch")) continue;
+      const hostEl = row.closest("yt-compactify-video-action-bar-view-model");
+      if (hostEl && hostEl.querySelector(".marktube-dl-watch")) continue;
+      let share = null;
+      for (const child of row.children) {
+        const b = child.matches("button") ? child : child.querySelector("button");
+        const label = b && (b.getAttribute("aria-label") || b.textContent || "").trim();
+        if (label && SHARE_LABEL.test(label)) { share = child; break; }
+      }
+      if (!share) {
+        share = [...row.querySelectorAll("button-view-model.slim_video_action_bar_renderer_button")]
+          .find((b) => !b.matches(".slim-action-more-button, .you-chat-entrypoint-button"));
+      }
+      if (!share) continue;
+      const item = share.cloneNode(true);
+      item.classList.add("marktube-dl-watch");
+      item.classList.remove("you-chat-entrypoint-button", "slim-action-more-button");
+      for (const el of [item, ...item.querySelectorAll("*")]) el.removeAttribute("id");
+      const icon = item.querySelector("c3-icon, yt-icon, .ytSpecButtonShapeNextIcon");
+      if (icon) {
+        const holder = document.createElement("span");
+        holder.innerHTML = DL_ICON_BOLD;
+        icon.replaceChildren(holder.firstChild);
+      }
+      const btn = item.querySelector("button") || item;
+      btn.setAttribute("aria-label", "Preuzmi");
+      btn.setAttribute("title", "Preuzmi");
+      guardTap(item, () => port.postMessage({ type: "download", url: location.href }));
+      // The compact row measures its own buttons and hides all of them when it finds one it
+      // did not make, so there the button goes next to "Subscribe" instead.
+      const host = row.closest("yt-compactify-video-action-bar-view-model");
+      const subs = host && host.querySelector(".ytCompactChannelBarViewModelButtons");
+      if (host && !subs) continue;
+      if (subs) {
+        if (subs.querySelector(".marktube-dl-watch")) continue;
+        item.style.marginLeft = "8px";
+        subs.appendChild(item);
+      } else {
+        share.after(item);
+      }
     }
-    const btn = item.querySelector("button") || item;
-    btn.setAttribute("aria-label", "Preuzmi");
-    btn.setAttribute("title", "Preuzmi");
-    guardTap(item, () => port.postMessage({ type: "download", url: location.href }));
-    share.after(item);
   }
-  setInterval(() => { try { addWatchDownload(); } catch (e) { } }, 1000);
 
   // A playlist or mix open under the video covers the row above, so its header (next to
   // loop / shuffle) gets a button that downloads the whole list. "#playlist" tells the
@@ -372,7 +396,20 @@
       row.appendChild(item);
     }
   }
-  setInterval(() => { try { addPanelDownload(); } catch (e) { } }, 1000);
+
+  // One timer for all checks, and none at all while the app is not on screen (the app tells
+  // us; the page itself is always told it is visible, for background play).
+  let onScreen = true;
+  let ticks = 0;
+  setInterval(() => {
+    if (!onScreen) return;
+    trackShorts();
+    if (shortId()) { try { skipAdShort(); } catch (e) { } }
+    if (++ticks % 2) return; // the buttons once a second
+    try { addDownloadTab(); } catch (e) { }
+    try { addWatchDownload(); } catch (e) { }
+    try { addPanelDownload(); } catch (e) { }
+  }, 500);
 
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
@@ -392,6 +429,24 @@
       document.body.appendChild(a);
       a.click();
       a.remove();
+    } else if (msg.type === "fg") {
+      onScreen = !!msg.value;
+      // Off screen only the sound is needed. A hidden video element lets Gecko stop decoding
+      // the picture, which was most of the work while playing in the background.
+      for (const v of document.querySelectorAll("video")) {
+        v.style.visibility = onScreen ? "" : "hidden";
+      }
+      // ...and the smallest picture is enough, which also saves mobile data. Back on screen
+      // YouTube picks the quality itself again.
+      try {
+        const p = document.getElementById("movie_player");
+        const w = p && p.wrappedJSObject;
+        if (w && typeof w.setPlaybackQualityRange === "function") {
+          if (onScreen) w.setPlaybackQualityRange("auto", "auto");
+          else w.setPlaybackQualityRange("tiny", "tiny");
+          port.postMessage({ type: "log", text: "quality " + (onScreen ? "auto" : "tiny") + " now " + w.getPlaybackQuality() });
+        }
+      } catch (e) { port.postMessage({ type: "log", text: "quality failed " + e }); }
     } else if (msg.type === "dump") {
       port.postMessage({ type: "dump", data: dump() });
     }

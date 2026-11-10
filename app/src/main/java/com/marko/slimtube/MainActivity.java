@@ -188,6 +188,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < TABS.length; i++) {
             final String url = TABS[i][1];
             final boolean isShorts = i == 1;
+            final boolean isHomeTab = i == 0;
             android.widget.LinearLayout item = new android.widget.LinearLayout(this);
             item.setOrientation(android.widget.LinearLayout.VERTICAL);
             item.setGravity(android.view.Gravity.CENTER);
@@ -210,6 +211,7 @@ public class MainActivity extends Activity {
             item.setOnClickListener(v -> {
                 if (url == null) { openDownloads(currentUrl); return; }
                 if (isShorts && isShorts(currentUrl)) return;
+                if (isHomeTab) { session.loadUri(url); return; } // Home = always a fresh feed
                 App.navigate(url, () -> session.loadUri(url));
             });
             bar.addView(item, new android.widget.LinearLayout.LayoutParams(0,
@@ -364,43 +366,24 @@ public class MainActivity extends Activity {
         attachSession();
     }
 
-    private static long stoppedAt; // static: the page outlives this activity
-
     @Override
     protected void onStart() {
         super.onStart();
+        App.setForeground(true);
         UpdateBanner.check(this, root); // "new version" bar, only while the app is open
         Updater.check(this);
-        // The page stays loaded for as long as the process lives, so without this the feed
-        // would show the same videos for days. Reload it after a while in the background.
-        if (stoppedAt > 0 && android.os.SystemClock.elapsedRealtime() - stoppedAt > 20 * 60 * 1000
-                && !App.playing && isFeed(currentUrl) && App.hasSession()) {
-            Log.i(App.TAG, "reloading stale feed");
-            session.reload();
-        }
-        stoppedAt = 0;
-    }
-
-    /** Pages with a list of videos (home, subscriptions, channels...) - not a video or a short. */
-    private static boolean isFeed(String url) {
-        if (url == null) return false;
-        Uri u = Uri.parse(url);
-        String path = u.getPath() == null ? "/" : u.getPath();
-        return isAllowed(u) && !path.startsWith("/watch") && !path.startsWith("/shorts")
-                && !path.startsWith("/live") && (u.getFragment() == null || u.getFragment().isEmpty());
     }
 
     /**
-     * GeckoView marks the page hidden when our window goes away (screen off / home), and YouTube
-     * pauses hidden pages. While something is playing, keep the page "active" so it continues.
+     * Out of sight the page is made inactive: Gecko then stops drawing it, stops decoding the
+     * picture of a video that keeps playing (only the sound goes on) and slows its timers.
+     * Before, the page stayed active whenever something had been playing, and used ~18% of a
+     * core even after pausing, ~60% while playing.
      */
     @Override
     protected void onStop() {
         super.onStop();
-        stoppedAt = android.os.SystemClock.elapsedRealtime();
-        geckoView.postDelayed(() -> {
-            if (App.playing && App.hasSession()) session.setActive(true);
-        }, 300);
+        App.setForeground(false);
     }
 
     @Override

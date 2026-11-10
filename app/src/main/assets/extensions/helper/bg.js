@@ -33,4 +33,5 @@
   }
   // The window losing focus (not a text field losing it).
   window.addEventListener("blur", (e) => { if (e.target === window) swallow(e); }, true);
+
 })();

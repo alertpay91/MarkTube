@@ -91,6 +91,10 @@ public class PlaybackService extends Service {
     private void control(String action) {
         org.mozilla.geckoview.MediaSession m = App.media;
         Log.i(App.TAG, "control: " + action + " media=" + (m != null));
+        // A page paused in the background has been made inactive; wake it before it plays.
+        if (!ACTION_PAUSE.equals(action) && !ACTION_STOP.equals(action) && App.hasSession()) {
+            App.session(this).setActive(true);
+        }
         switch (action) {
             case ACTION_PLAY: if (m != null) m.play(); break;
             case ACTION_PAUSE: if (m != null) m.pause(); break;
