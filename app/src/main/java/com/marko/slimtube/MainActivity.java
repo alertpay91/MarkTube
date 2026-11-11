@@ -37,7 +37,9 @@ public class MainActivity extends Activity {
     private GeckoSession session;
     private boolean canGoBack;
     private boolean fullScreen;
-    private String currentUrl = App.HOME;
+    /** The page lives on in App when a new window opens: remember where it is. */
+    private static String lastUrl = App.HOME;
+    private String currentUrl = lastUrl;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,6 +76,9 @@ public class MainActivity extends Activity {
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
             }
         }
+        // A new window over a page that is already open: show its player / tab bar again.
+        updateTabBar();
+        updateNative(currentUrl);
         handleIntent(getIntent());
     }
 
@@ -315,7 +320,7 @@ public class MainActivity extends Activity {
         public void onLocationChange(GeckoSession s, String url,
                                      java.util.List<org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission> perms,
                                      Boolean hasUserGesture) {
-            if (url != null) currentUrl = url;
+            if (url != null) currentUrl = lastUrl = url;
             updateTabBar();
             updateNative(url);
         }
@@ -431,10 +436,12 @@ public class MainActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         // The video's picture while its streams are looked up (about a second).
         thumb = new android.widget.ImageView(this);
+        thumb.setVisibility(View.GONE); // shown by showThumb() while a new video loads
         thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         playerBox.addView(thumb, new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         spinner = new android.widget.ProgressBar(this);
+        spinner.setVisibility(View.GONE);
         android.widget.FrameLayout.LayoutParams sp = new android.widget.FrameLayout.LayoutParams(dp(48), dp(48));
         sp.gravity = android.view.Gravity.CENTER;
         playerBox.addView(spinner, sp);
@@ -604,9 +611,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Windows of this app on screen now (normally one, briefly two). */
+    private static int started;
+
     @Override
     protected void onStart() {
         super.onStart();
+        started++;
         App.setForeground(true);
         NativePlayer.setVideoWanted(true);
         NativePlayer.onScreen = true;
@@ -624,10 +635,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
-        App.setForeground(false);
-        // Only the sound is needed now (it keeps playing through VideoService).
-        NativePlayer.setVideoWanted(false);
-        NativePlayer.onScreen = false;
+        // Opening the app again can create a new window before the old one is closed: only
+        // the last one closing means the app left the screen.
+        started = Math.max(0, started - 1);
+        if (started == 0) {
+            App.setForeground(false);
+            // Only the sound is needed now (it keeps playing through VideoService).
+            NativePlayer.setVideoWanted(false);
+            NativePlayer.onScreen = false;
+        }
     }
 
     @Override

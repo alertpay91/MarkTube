@@ -412,14 +412,23 @@
     // the "ambient" colour glow around YouTube's player would stay black without it
     + "html.mt-native ytm-watch, html.mt-native .watch-below-the-player, html.mt-native .page-container,"
     + "html.mt-native ytm-single-column-watch-next-results-renderer, html.mt-native ytm-slim-video-metadata-section-renderer"
-    + " { background: var(--yt-spec-base-background, #fff) !important; border-radius: 0 !important; }"
+    + " { background: var(--mt-bg, #fff) !important; border-radius: 0 !important; }"
+    // the related-videos chips stick below YouTube's (hidden) player: stick them to the top
+    + "html.mt-native ytm-related-chip-cloud-renderer.chips-fixed-positioning { top: 0 !important; }"
     + "html.mt-native [class*=cinematic], html.mt-native [id*=cinematic], html.mt-native .ambient-container { display: none !important; }";
   document.documentElement.appendChild(nativeStyle);
   const isWatch = () => location.pathname.startsWith("/watch");
+  let mtBg = "";
   function applyNative() {
     const on = nativeOn && isWatch();
     document.documentElement.classList.toggle("mt-native", on);
     if (!on) return;
+    // the page's own background (light or dark theme), for the parts the glow made black
+    const bg = getComputedStyle(document.documentElement).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== mtBg) {
+      mtBg = bg;
+      document.documentElement.style.setProperty("--mt-bg", bg);
+    }
     for (const v of document.querySelectorAll("video")) {
       if (!v.paused) v.pause();
       v.muted = true;
