@@ -19,6 +19,10 @@ public class VideoService extends MediaSessionService {
     @Override
     public void onCreate() {
         super.onCreate();
+        // Paused: leave the foreground after 3 min (default 10), so Android may freeze the app
+        // instead of letting the page's scripts run on. Measured on a Pixel 8: ~3% of a core
+        // while it stayed in the foreground, 0 after.
+        setForegroundServiceTimeoutMs(180_000);
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
