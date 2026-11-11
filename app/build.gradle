@@ -41,15 +41,27 @@ android {
 
     packaging {
         jniLibs { useLegacyPackaging = true }
+        resources {
+            excludes += ['META-INF/*.md', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
+    // Native video player: stream addresses from NewPipeExtractor (the weekly build passes the
+    // newest release), played by ExoPlayer straight onto the screen with the hardware decoder.
+    implementation "com.github.TeamNewPipe:NewPipeExtractor:${project.findProperty('npeVersion') ?: 'v0.27.1'}"
+    implementation 'androidx.media3:media3-exoplayer:1.11.1'
+    implementation 'androidx.media3:media3-session:1.11.1'
+    implementation 'androidx.media3:media3-ui:1.11.1'
+    implementation 'com.google.guava:guava:33.4.8-android'
     // yt-dlp + Python for the "Preuzimanje" (download) screen. No ffmpeg: MediaMuxer joins streams.
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
     implementation "org.mozilla.geckoview:geckoview-arm64-v8a:${project.findProperty('geckoviewVersion') ?: '159.0.20261102144711'}"

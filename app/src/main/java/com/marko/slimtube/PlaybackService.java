@@ -48,6 +48,16 @@ public class PlaybackService extends Service {
         }
     }
 
+    /** The native player took over: pause the page's media and remove this notification. */
+    static void dismiss(Context ctx) {
+        if (!running) return;
+        try {
+            ctx.startService(new Intent(ctx, PlaybackService.class).setAction(ACTION_STOP));
+        } catch (Exception e) {
+            Log.w(App.TAG, "could not stop playback service", e);
+        }
+    }
+
     /** Updates the notification if the service is already running. */
     static void refresh(Context ctx) {
         if (running) start(ctx);

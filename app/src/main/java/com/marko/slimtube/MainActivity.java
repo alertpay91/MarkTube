@@ -50,6 +50,10 @@ public class MainActivity extends Activity {
         geckoView = new GeckoView(this);
         // YouTube's dark background until the page has drawn (instead of a white surface).
         geckoView.coverUntilFirstPaint(0xFF0F0F0F);
+        buildNativePlayer();
+        column.addView(playerBox, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         column.addView(geckoView, new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         tabBar = buildTabBar();
@@ -109,6 +113,10 @@ public class MainActivity extends Activity {
     //      fullscreen -> open menu/panel -> page history -> Home tab -> minimize (keeps playing) ----
 
     private void handleBack() {
+        if (nativeFs) {
+            setNativeFullscreen(false);
+            return;
+        }
         if (fullScreen) {
             session.exitFullScreen();
             return;
@@ -227,14 +235,14 @@ public class MainActivity extends Activity {
     }
 
     private void updateTabBar() {
-        tabBar.setVisibility(!fullScreen && isShorts(currentUrl) ? View.VISIBLE : View.GONE);
+        tabBar.setVisibility(!fullScreen && !nativeFs && isShorts(currentUrl) ? View.VISIBLE : View.GONE);
     }
 
     // ---- Keep the page out from under the status bar, nav bar and keyboard ----
 
     private void applyInsets() {
         root.setOnApplyWindowInsetsListener((v, insets) -> {
-            if (fullScreen) {
+            if (fullScreen || nativeFs) {
                 v.setPadding(0, 0, 0, 0);
             } else if (Build.VERSION.SDK_INT >= 30) {
                 android.graphics.Insets bars = insets.getInsets(
@@ -309,6 +317,7 @@ public class MainActivity extends Activity {
                                      Boolean hasUserGesture) {
             if (url != null) currentUrl = url;
             updateTabBar();
+            updateNative(url);
         }
 
         @Override
@@ -366,10 +375,242 @@ public class MainActivity extends Activity {
         attachSession();
     }
 
+    // ---- Native video player (normal videos; Shorts stay in the page) ----
+
+    private android.widget.FrameLayout playerBox;
+    private androidx.media3.ui.PlayerView playerView;
+    private android.widget.ImageView thumb;
+    private android.widget.ProgressBar spinner;
+    private boolean nativeFs;
+    private boolean rotatedToFs;
+    /** Videos the native player could not play: these use YouTube's web player. */
+    private final java.util.Set<String> webOnly = new java.util.HashSet<>();
+    private com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> controllerFuture;
+
+    private final androidx.media3.common.Player.Listener nativeListener = new androidx.media3.common.Player.Listener() {
+        @Override
+        public void onIsPlayingChanged(boolean playing) {
+            playerView.setKeepScreenOn(playing);
+            if (playing) spinner.setVisibility(View.GONE);
+        }
+
+        @Override
+        public void onVideoSizeChanged(androidx.media3.common.VideoSize size) {
+            if (nativeFs) applyFsOrientation();
+        }
+    };
+
+    @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
+    private void buildNativePlayer() {
+        playerBox = new android.widget.FrameLayout(this) {
+            @Override
+            protected void onMeasure(int w, int h) {
+                if (nativeFs) {
+                    super.onMeasure(w, h);
+                } else {
+                    int width = View.MeasureSpec.getSize(w);
+                    super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(width * 9 / 16, View.MeasureSpec.EXACTLY));
+                }
+            }
+        };
+        playerBox.setBackgroundColor(0xFF000000);
+        playerBox.setVisibility(View.GONE);
+        playerView = new androidx.media3.ui.PlayerView(this);
+        playerView.setShutterBackgroundColor(0xFF000000);
+        playerView.setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+        playerView.setShowNextButton(true);
+        playerView.setShowPreviousButton(false);
+        playerView.setControllerShowTimeoutMs(2500);
+        playerView.setFullscreenButtonClickListener(this::setNativeFullscreen);
+        // The page's own surface stays alive (and keeps its last picture) while hidden in full
+        // screen; the video's surface must be drawn above it, or the old page shows through.
+        if (playerView.getVideoSurfaceView() instanceof android.view.SurfaceView) {
+            ((android.view.SurfaceView) playerView.getVideoSurfaceView()).setZOrderMediaOverlay(true);
+        }
+        playerBox.addView(playerView, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        // The video's picture while its streams are looked up (about a second).
+        thumb = new android.widget.ImageView(this);
+        thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        playerBox.addView(thumb, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        spinner = new android.widget.ProgressBar(this);
+        android.widget.FrameLayout.LayoutParams sp = new android.widget.FrameLayout.LayoutParams(dp(48), dp(48));
+        sp.gravity = android.view.Gravity.CENTER;
+        playerBox.addView(spinner, sp);
+
+        playerView.setPlayer(NativePlayer.get(this));
+        NativePlayer.exo().addListener(nativeListener);
+        NativePlayer.onFirstFrame = () -> {
+            thumb.setVisibility(View.GONE);
+            spinner.setVisibility(View.GONE);
+        };
+        NativePlayer.onNext = this::playNext;
+        NativePlayer.onFailed = id -> {
+            // e.g. age-restricted: let YouTube's own player have this one
+            Log.w(App.TAG, "native failed, web player for " + id);
+            long pos = NativePlayer.position();
+            webOnly.add(id);
+            NativePlayer.stop();
+            if (nativeFs) setNativeFullscreen(false);
+            showNative(false);
+            App.setNative(false);
+            if (id.equals(watchId(currentUrl))) {
+                // same video, same moment, in YouTube's own player
+                App.startWebPlayerSoon();
+                session.loadUri("https://m.youtube.com/watch?v=" + id + (pos > 3000 ? "&t=" + (pos / 1000) + "s" : ""));
+            }
+        };
+    }
+
+    private void connectVideoService() {
+        if (controllerFuture != null) return;
+        androidx.media3.session.SessionToken token = new androidx.media3.session.SessionToken(this,
+                new android.content.ComponentName(this, VideoService.class));
+        controllerFuture = new androidx.media3.session.MediaController.Builder(this, token).buildAsync();
+    }
+
+    static String watchId(String url) {
+        if (url == null) return null;
+        Uri u = Uri.parse(url);
+        String path = u.getPath();
+        if (path == null || !path.startsWith("/watch") || !isAllowed(u)) return null;
+        String v = u.getQueryParameter("v");
+        return v != null && v.matches("[A-Za-z0-9_-]{11}") ? v : null;
+    }
+
+    private static long startMs(String url) {
+        String t = Uri.parse(url).getQueryParameter("t");
+        if (t == null) return 0;
+        try {
+            return Long.parseLong(t.replaceAll("s$", "")) * 1000;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private void updateNative(String url) {
+        String id = watchId(url);
+        if (id != null && !webOnly.contains(id)) {
+            App.setNative(true);
+            if (!id.equals(NativePlayer.currentId)) {
+                showThumb(id);
+                NativePlayer.play(this, id, startMs(url));
+            }
+            showNative(true);
+        } else {
+            if (id != null) App.setNative(false); // this video uses the web player
+            if (NativePlayer.currentId != null) NativePlayer.stop();
+            if (nativeFs) setNativeFullscreen(false);
+            showNative(false);
+        }
+    }
+
+    private void showNative(boolean on) {
+        playerBox.setVisibility(on ? View.VISIBLE : View.GONE);
+    }
+
+    private void showThumb(String id) {
+        thumb.setImageDrawable(null);
+        thumb.setVisibility(View.VISIBLE);
+        spinner.setVisibility(View.VISIBLE);
+        new Thread(() -> {
+            try (java.io.InputStream in = new java.net.URL("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg").openStream()) {
+                android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeStream(in);
+                runOnUiThread(() -> {
+                    if (id.equals(NativePlayer.currentId) && thumb.getVisibility() == View.VISIBLE) thumb.setImageBitmap(b);
+                });
+            } catch (Exception ignored) {
+            }
+        }, "thumb").start();
+    }
+
+    /** "Next" or the end of a video: what YouTube's autoplay would open (playlist first). */
+    private void playNext() {
+        String id = NativePlayer.currentId;
+        App.requestNext(found -> {
+            String url = found;
+            if (url == null && id != null) {
+                try {
+                    url = Streams.get(id).next; // already looked up: no waiting
+                } catch (Exception ignored) {
+                }
+            }
+            if (url == null) return;
+            String u = url.replace("://www.youtube.com/", "://m.youtube.com/");
+            Log.i(App.TAG, "next: " + u);
+            App.navigate(u, () -> session.loadUri(u));
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    private void setNativeFullscreen(boolean fs) {
+        if (nativeFs == fs) return;
+        nativeFs = fs;
+        playerView.setFullscreenButtonState(fs);
+        geckoView.setVisibility(fs ? View.GONE : View.VISIBLE);
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                if (fs) {
+                    c.hide(WindowInsets.Type.systemBars());
+                    c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    c.show(WindowInsets.Type.systemBars());
+                }
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(fs
+                    ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    : View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+        if (fs) {
+            if (rotatedToFs) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            else applyFsOrientation();
+        } else if (rotatedToFs) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        } else {
+            // Back to upright; follow the sensor again a moment later.
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+            geckoView.postDelayed(() -> {
+                if (!nativeFs) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            }, 3000);
+        }
+        if (!fs) rotatedToFs = false;
+        playerBox.requestLayout();
+        root.requestApplyInsets();
+        updateTabBar();
+    }
+
+    private void applyFsOrientation() {
+        if (rotatedToFs) return;
+        androidx.media3.exoplayer.ExoPlayer exo = NativePlayer.exo();
+        boolean vertical = exo != null && exo.getVideoSize().height > exo.getVideoSize().width;
+        setRequestedOrientation(vertical ? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        // Turning the phone sideways on a video goes to full screen and back, like the app.
+        boolean land = c.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        if (land && !nativeFs && playerBox.getVisibility() == View.VISIBLE) {
+            rotatedToFs = true;
+            setNativeFullscreen(true);
+        } else if (!land && nativeFs && rotatedToFs) {
+            setNativeFullscreen(false);
+        }
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
         App.setForeground(true);
+        NativePlayer.setVideoWanted(true);
+        NativePlayer.onScreen = true;
+        connectVideoService();
         UpdateBanner.check(this, root); // "new version" bar, only while the app is open
         Updater.check(this);
     }
@@ -384,11 +625,17 @@ public class MainActivity extends Activity {
     protected void onStop() {
         super.onStop();
         App.setForeground(false);
+        // Only the sound is needed now (it keeps playing through VideoService).
+        NativePlayer.setVideoWanted(false);
+        NativePlayer.onScreen = false;
     }
 
     @Override
     protected void onDestroy() {
         if (App.onDownload == downloadHandler) App.onDownload = null;
+        if (NativePlayer.exo() != null) NativePlayer.exo().removeListener(nativeListener);
+        if (playerView != null) playerView.setPlayer(null);
+        if (controllerFuture != null) androidx.media3.session.MediaController.releaseFuture(controllerFuture);
         if (geckoView != null) geckoView.releaseSession();
         super.onDestroy();
     }

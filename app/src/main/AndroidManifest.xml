@@ -66,6 +66,16 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Native video player (ExoPlayer) for normal videos. -->
+        <service
+            android:name=".VideoService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".PlaybackService"
             android:exported="false"

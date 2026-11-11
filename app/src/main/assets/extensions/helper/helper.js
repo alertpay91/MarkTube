@@ -397,6 +397,93 @@
     }
   }
 
+  // ---- Native player: on video pages the app shows its own player above the page ----
+  // YouTube's player (and the top bar above it) is hidden and kept silent; the rest of the
+  // page (title, buttons, comments, next videos) stays as it is.
+  let nativeOn = true;
+  const nativeStyle = document.createElement("style");
+  nativeStyle.textContent =
+    "html.mt-native ytm-mobile-topbar-renderer, html.mt-native #header-bar,"
+    + "html.mt-native #player-container-id, html.mt-native .player-container,"
+    + "html.mt-native #player, html.mt-native ytm-player, html.mt-native .player-size,"
+    + "html.mt-native ytm-miniplayer, html.mt-native .player-placeholder { display: none !important; }"
+    + "html.mt-native body, html.mt-native .page-container, html.mt-native ytm-app,"
+    + "html.mt-native ytm-watch { padding-top: 0 !important; margin-top: 0 !important; }"
+    // the "ambient" colour glow around YouTube's player would stay black without it
+    + "html.mt-native ytm-watch, html.mt-native .watch-below-the-player, html.mt-native .page-container,"
+    + "html.mt-native ytm-single-column-watch-next-results-renderer, html.mt-native ytm-slim-video-metadata-section-renderer"
+    + " { background: var(--yt-spec-base-background, #fff) !important; border-radius: 0 !important; }"
+    + "html.mt-native [class*=cinematic], html.mt-native [id*=cinematic], html.mt-native .ambient-container { display: none !important; }";
+  document.documentElement.appendChild(nativeStyle);
+  const isWatch = () => location.pathname.startsWith("/watch");
+  function applyNative() {
+    const on = nativeOn && isWatch();
+    document.documentElement.classList.toggle("mt-native", on);
+    if (!on) return;
+    for (const v of document.querySelectorAll("video")) {
+      if (!v.paused) v.pause();
+      v.muted = true;
+    }
+  }
+  document.addEventListener("play", (e) => {
+    if (nativeOn && isWatch() && e.target.pause) { e.target.muted = true; e.target.pause(); }
+  }, true);
+  applyNative();
+
+  // The native player could not play this video and the page was reloaded for YouTube's own
+  // player: start it, as if the video had been opened from a list (a fresh load waits for a tap).
+  function startWebVideo() {
+    let tries = 0;
+    const t = setInterval(() => {
+      if (++tries > 60 || !isWatch()) { clearInterval(t); return; }
+      const v = document.querySelector("video");
+      if (v && !v.paused) { clearInterval(t); return; }
+      if (v && v.src) {
+        const p = v.play();
+        if (p && p.catch) p.catch(() => { });
+        return;
+      }
+      // before the first tap there is only a picture with a big play button
+      const b = document.querySelector('[class*="CuedOverlayPlayButton"] button, button[class*="CuedOverlayPlayButton"],'
+        + ' [class*="cued-overlay"] button, .ytp-large-play-button, #player [aria-label="Play"]');
+      if (b) b.click();
+    }, 500);
+  }
+
+  // Start looking up a video's streams the moment a finger touches its link (a few hundred
+  // milliseconds before the page actually changes).
+  let lastPrefetch = "";
+  document.addEventListener("touchstart", (e) => {
+    const a = e.target.closest && e.target.closest('a[href*="/watch?v="]');
+    if (!a || !nativeOn) return;
+    const v = new URL(a.getAttribute("href"), location.href).searchParams.get("v");
+    if (v && v !== lastPrefetch) {
+      lastPrefetch = v;
+      port.postMessage({ type: "prefetch", id: v });
+    }
+  }, { passive: true, capture: true });
+
+  // The next video after this one: the next playlist entry, else the first suggestion.
+  function nextVideo() {
+    const here = new URL(location.href);
+    const cur = here.searchParams.get("v");
+    const list = here.searchParams.get("list");
+    const links = [...document.querySelectorAll('a[href*="/watch?v="]')]
+      .map((a) => new URL(a.getAttribute("href"), location.href))
+      .filter((u) => u.searchParams.get("v") && u.searchParams.get("v") !== cur);
+    if (list) {
+      const inList = [...document.querySelectorAll('a[href*="list=' + list + '"]')]
+        .map((a) => new URL(a.getAttribute("href"), location.href));
+      const i = inList.findIndex((u) => u.searchParams.get("v") === cur);
+      for (let k = i + 1; i >= 0 && k < inList.length; k++) {
+        if (inList[k].searchParams.get("v") !== cur) return inList[k].toString();
+      }
+    }
+    // Not in a list: the first plain suggestion (not a "Mix" playlist), like YouTube's autoplay.
+    const plain = links.find((u) => !u.searchParams.get("list"));
+    return plain ? plain.toString() : (links.length ? links[0].toString() : null);
+  }
+
   // One timer for all checks, and none at all while the app is not on screen (the app tells
   // us; the page itself is always told it is visible, for background play).
   let onScreen = true;
@@ -404,6 +491,7 @@
   setInterval(() => {
     if (!onScreen) return;
     trackShorts();
+    applyNative();
     if (shortId()) { try { skipAdShort(); } catch (e) { } }
     if (++ticks % 2) return; // the buttons once a second
     try { addDownloadTab(); } catch (e) { }
@@ -429,6 +517,15 @@
       document.body.appendChild(a);
       a.click();
       a.remove();
+    } else if (msg.type === "native") {
+      nativeOn = !!msg.value;
+      browser.runtime.sendMessage({ type: "native", value: nativeOn }).catch(() => { });
+      applyNative();
+      if (msg.play && !nativeOn) startWebVideo();
+    } else if (msg.type === "next") {
+      let url = null;
+      try { url = nextVideo(); } catch (e) { }
+      port.postMessage({ type: "nextResult", id: msg.id, url: url || "" });
     } else if (msg.type === "fg") {
       onScreen = !!msg.value;
       // Off screen only the sound is needed. A hidden video element lets Gecko stop decoding

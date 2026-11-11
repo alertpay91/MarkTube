@@ -145,6 +145,18 @@ public class App extends Application {
                     .build();
             session = new GeckoSession(settings);
             session.setMediaSessionDelegate(new MediaDelegate(ctx.getApplicationContext()));
+            // Let YouTube's own player start without a tap only right after the native player
+            // handed a video over to it. Otherwise blocked as before (no silent feed previews).
+            session.setPermissionDelegate(new GeckoSession.PermissionDelegate() {
+                @Override
+                public GeckoResult<Integer> onContentPermissionRequest(GeckoSession s, ContentPermission perm) {
+                    if (perm.permission == PERMISSION_AUTOPLAY_AUDIBLE || perm.permission == PERMISSION_AUTOPLAY_INAUDIBLE) {
+                        return GeckoResult.fromValue(startWebPlayer && perm.permission == PERMISSION_AUTOPLAY_AUDIBLE
+                                ? ContentPermission.VALUE_ALLOW : ContentPermission.VALUE_DENY);
+                    }
+                    return GeckoResult.fromValue(ContentPermission.VALUE_PROMPT);
+                }
+            });
             session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
                 @Override
                 public void onPageStart(GeckoSession s, String url) { loading = true; }
@@ -257,6 +269,7 @@ public class App extends Application {
             @Override
             public void onConnect(WebExtension.Port port) {
                 helperPort = port;
+                sendNative(port);
                 if (!foreground) {
                     try { port.postMessage(new JSONObject().put("type", "fg").put("value", false)); } catch (Exception ignored) { }
                 }
@@ -270,6 +283,13 @@ public class App extends Application {
                             Log.i(TAG, "back: page closed " + msg.optString("what", "nothing"));
                             Consumer<Boolean> cb = pendingBack.remove(msg.optInt("id"));
                             if (cb != null) cb.accept(msg.optBoolean("handled"));
+                        } else if ("prefetch".equals(type)) {
+                            String v = msg.optString("id");
+                            if (v.matches("[A-Za-z0-9_-]{11}")) Streams.prefetch(v);
+                        } else if ("nextResult".equals(type)) {
+                            Consumer<String> cb = pendingNext.remove(msg.optInt("id"));
+                            String url = msg.optString("url", "");
+                            if (cb != null) cb.accept(url.isEmpty() ? null : url);
                         } else if ("download".equals(type)) {
                             Consumer<String> d = onDownload;
                             if (d != null) d.accept(msg.optString("url"));
@@ -310,6 +330,58 @@ public class App extends Application {
             Consumer<Boolean> cb = pendingBack.remove(id);
             if (cb != null) cb.accept(false);
         }, 300);
+    }
+
+    /** Whether video pages use the native player (true) or YouTube's web player. */
+    private static boolean nativeOn = true;
+
+    static void setNative(boolean on) {
+        if (nativeOn == on) return;
+        nativeOn = on;
+        WebExtension.Port port = helperPort;
+        if (port != null) sendNative(port);
+    }
+
+    /** The next page that connects should start YouTube's own player (native one failed). */
+    static boolean startWebPlayer;
+
+    static void startWebPlayerSoon() {
+        startWebPlayer = true;
+        main.removeCallbacks(clearStartWeb);
+        main.postDelayed(clearStartWeb, 15_000);
+    }
+
+    private static final Runnable clearStartWeb = () -> startWebPlayer = false;
+
+    private static void sendNative(WebExtension.Port port) {
+        try {
+            JSONObject m = new JSONObject().put("type", "native").put("value", nativeOn);
+            // (the flag lasts a few seconds: the page that is about to be replaced may connect first)
+            if (!nativeOn && startWebPlayer) m.put("play", true);
+            port.postMessage(m);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static final Map<Integer, Consumer<String>> pendingNext = new HashMap<>();
+
+    /** Asks the page which video comes next (playlist, else autoplay); null if it doesn't know. */
+    static void requestNext(Consumer<String> callback) {
+        WebExtension.Port port = helperPort;
+        if (port == null) { callback.accept(null); return; }
+        int id = ++nextBackId;
+        pendingNext.put(id, callback);
+        try {
+            port.postMessage(new JSONObject().put("type", "next").put("id", id));
+        } catch (Exception e) {
+            pendingNext.remove(id);
+            callback.accept(null);
+            return;
+        }
+        main.postDelayed(() -> {
+            Consumer<String> cb = pendingNext.remove(id);
+            if (cb != null) cb.accept(null);
+        }, 1500);
     }
 
     /** Switches tab inside the page (no full reload) when the helper is there, else uses the fallback. */
@@ -380,6 +452,7 @@ public class App extends Application {
         @Override
         public void onPlay(GeckoSession s, MediaSession ms) {
             Log.i(TAG, "gecko onPlay");
+            if (NativePlayer.isPlaying()) NativePlayer.exo().pause();
             media = ms;
             playing = true;
             updateActive();

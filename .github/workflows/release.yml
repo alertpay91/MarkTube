@@ -1,11 +1,13 @@
 name: Build & release
 
-# Every week: rebuild with the newest GeckoView (Firefox engine) and publish a release.
+# Every day: if a new GeckoView (Firefox engine) or NewPipeExtractor (finds the video streams
+# for the native player, and is fixed quickly whenever YouTube changes something) came out,
+# rebuild with it and publish a release. Nothing new: no release.
 # Every push to main: publish a release with the new code.
-# Phones update from the latest release via Obtainium (tag v1.<code> = app versionName).
+# Phones update from the latest release (in-app "new version" bar, or Obtainium).
 on:
   schedule:
-    - cron: "0 4 * * 1"
+    - cron: "0 4 * * *"
   push:
     branches: [main]
     paths-ignore: ["**.md", "docs/**"]
@@ -35,6 +37,16 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "GeckoView $v"
 
+      - name: Find newest NewPipeExtractor
+        id: npe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(gh api repos/TeamNewPipe/NewPipeExtractor/releases/latest --jq .tag_name)
+          [ -n "$v" ] || { echo "could not read NewPipeExtractor version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "NewPipeExtractor $v"
+
       - name: Skip if nothing changed
         id: check
         env:
@@ -44,6 +56,7 @@ jobs:
           tag=${last%% *}
           if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$tag" ] \
              && echo "$last" | grep -q "GeckoView ${{ steps.gecko.outputs.version }}" \
+             && echo "$last" | grep -q "NewPipeExtractor ${{ steps.npe.outputs.version }}" \
              && [ -z "$(git log --oneline "$tag"..HEAD 2>/dev/null)" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Already up to date ($tag)"
@@ -82,7 +95,8 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon \
             -PversionCode=$code -PversionName=1.$code \
-            -PgeckoviewVersion=${{ steps.gecko.outputs.version }}
+            -PgeckoviewVersion=${{ steps.gecko.outputs.version }} \
+            -PnpeVersion=${{ steps.npe.outputs.version }}
           cp app/build/outputs/apk/release/app-release.apk MarkTube.apk
 
       - name: Publish release
@@ -92,7 +106,7 @@ jobs:
         run: |
           gh release create "v1.$CODE" MarkTube.apk \
             --title "MarkTube 1.$CODE" \
-            --notes "Automatic build. GeckoView ${{ steps.gecko.outputs.version }}. Commit ${GITHUB_SHA::7}."
+            --notes "Automatic build. GeckoView ${{ steps.gecko.outputs.version }}. NewPipeExtractor ${{ steps.npe.outputs.version }}. Commit ${GITHUB_SHA::7}."
 
       - name: Keep only the last 5 releases
         if: steps.check.outputs.skip == 'false'
