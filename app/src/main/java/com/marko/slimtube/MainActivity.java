@@ -697,18 +697,52 @@ public class MainActivity extends Activity {
     private void playNext() {
         String id = NativePlayer.currentId;
         App.requestNext(found -> {
-            String url = found;
-            if (url == null && id != null) {
+            java.util.List<String> candidates = new java.util.ArrayList<>();
+            if (found != null) candidates.add(found);
+            if (id != null) {
                 try {
-                    url = Streams.get(id).next; // already looked up: no waiting
+                    Streams cur = Streams.get(id); // already looked up: no waiting
+                    if (cur.next != null) candidates.add(cur.next);
+                    candidates.addAll(cur.related);
                 } catch (Exception ignored) {
                 }
             }
-            if (url == null) return;
-            String u = url.replace("://www.youtube.com/", "://m.youtube.com/");
-            Log.i(App.TAG, "next: " + u);
-            App.navigate(u, () -> session.loadUri(u));
+            if (candidates.isEmpty()) return;
+            if (App.foreground && !mini) {
+                // On the video page: YouTube's own player takes over one that can't play here.
+                startNext(candidates.get(0));
+                return;
+            }
+            // Listening off screen or in the small player: skip suggestions that can't be
+            // played here (e.g. made for kids), or the music would just stop.
+            new Thread(() -> {
+                for (String c : candidates) {
+                    String nid = watchId(c.replace("://www.youtube.com/", "://m.youtube.com/"));
+                    if (nid == null || webOnly.contains(nid)) continue;
+                    try {
+                        Streams.get(nid);
+                        runOnUiThread(() -> startNext(c));
+                        return;
+                    } catch (Exception e) {
+                        Log.i(App.TAG, "next: skipping " + nid + " (" + e.getMessage() + ")");
+                    }
+                }
+            }, "next").start();
         });
+    }
+
+    private void startNext(String url) {
+        String u = url.replace("://www.youtube.com/", "://m.youtube.com/");
+        Log.i(App.TAG, "next: " + u + (mini ? " (small player)" : ""));
+        // Start it here: in the background the page is inactive and may never get to
+        // switching pages itself, and then nothing would play.
+        String nid = watchId(u);
+        if (nid != null && !webOnly.contains(nid)) {
+            showThumb(nid);
+            NativePlayer.play(this, nid, 0);
+        }
+        // The small player keeps the page the user is on (Home, search...).
+        if (!mini) App.navigate(u, () -> session.loadUri(u));
     }
 
     @SuppressWarnings("deprecation")

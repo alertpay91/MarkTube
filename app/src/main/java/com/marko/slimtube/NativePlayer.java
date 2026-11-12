@@ -68,10 +68,7 @@ final class NativePlayer {
                     .setWakeMode(C.WAKE_MODE_NETWORK)
                     .setSeekBackIncrementMs(10_000)
                     .setSeekForwardIncrementMs(10_000)
-                    // 15-30 s ahead instead of 50 s: less data that may never be watched
-                    .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                            .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000)
-                            .build())
+                    .setLoadControl(new BurstLoadControl())
                     .build();
             exo.addListener(new Player.Listener() {
                 @Override
@@ -213,6 +210,26 @@ final class NativePlayer {
         main.postDelayed(watchdog, 2000);
         load(id, startMs, true);
         loadSponsorSegments(id);
+    }
+
+    /**
+     * How far ahead to download. With the picture: 15-30 s (less data that may never be
+     * watched). Sound only (off screen): up to 4 minutes at once, then nothing until 1 minute
+     * is left. Small pieces every few seconds kept the mobile radio awake the whole time; it
+     * was ~40% of the battery used while listening, the processor only ~3%.
+     */
+    private static final class BurstLoadControl extends androidx.media3.exoplayer.DefaultLoadControl {
+        private boolean loading;
+
+        @Override
+        public boolean shouldContinueLoading(androidx.media3.exoplayer.LoadControl.Parameters p) {
+            long low = videoWanted ? 15_000_000L : 60_000_000L;
+            long high = videoWanted ? 30_000_000L : 240_000_000L;
+            long buffered = p.bufferedDurationUs;
+            if (buffered < low) loading = true;
+            else if (buffered >= high) loading = false;
+            return loading;
+        }
     }
 
     /** Same video, same moment, streams picked again (after the 30/60 fps switch). */

@@ -35,6 +35,8 @@ final class Streams {
     final String id, title, channel, video, audio, next;
     final long durationMs;
     final long at = System.currentTimeMillis();
+    /** More suggestions after {@link #next}, in case that one can't be played here. */
+    final java.util.List<String> related = new java.util.ArrayList<>();
 
     private Streams(String id, String title, String channel, String video, String audio, String next, long durationMs) {
         this.id = id;
@@ -136,16 +138,18 @@ final class Streams {
             }
             if (audioUrl == null) throw new IOException("no playable stream");
             String next = null;
+            java.util.List<String> related = new java.util.ArrayList<>();
             if (si.getRelatedItems() != null) {
                 for (InfoItem it : si.getRelatedItems()) {
-                    if (it instanceof StreamInfoItem) {
-                        next = it.getUrl();
-                        break;
+                    if (it instanceof StreamInfoItem && it.getUrl() != null && it.getUrl().contains("watch?v=")) {
+                        if (next == null) next = it.getUrl();
+                        else if (related.size() < 8) related.add(it.getUrl());
                     }
                 }
             }
             Streams s = new Streams(id, si.getName(), si.getUploaderName(), videoUrl, audioUrl, next,
                     si.getDuration() * 1000L);
+            s.related.addAll(related);
             CACHE.put(id, s);
             android.util.Log.i(App.TAG, "streams " + id + " in " + (System.currentTimeMillis() - t0) + " ms, video "
                     + (video != null ? video.getResolution() + " " + video.getCodec() : "none"));
