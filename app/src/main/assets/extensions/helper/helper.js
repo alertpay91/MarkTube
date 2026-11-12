@@ -497,8 +497,23 @@
   // us; the page itself is always told it is visible, for background play).
   let onScreen = true;
   let ticks = 0;
+  // Loading spinners keep spinning while far below the screen (the feed's "load more" one sits
+  // under the last video the whole time): ~25-40% of a core on Home. Freeze them while off screen.
+  const spinStyle = document.createElement("style");
+  spinStyle.textContent = ".mt-offscreen, .mt-offscreen * { animation-play-state: paused !important; }";
+  (document.head || document.documentElement).appendChild(spinStyle);
+  const spinIO = new IntersectionObserver((entries) => {
+    for (const e of entries) e.target.classList.toggle("mt-offscreen", !e.isIntersecting);
+  }, { rootMargin: "200px" });
+  const spinSeen = new WeakSet();
+  function watchSpinners() {
+    for (const s of document.querySelectorAll(".spinner, ytm-spinner, .ytp-spinner")) {
+      if (!spinSeen.has(s)) { spinSeen.add(s); spinIO.observe(s); }
+    }
+  }
   setInterval(() => {
     if (!onScreen) return;
+    try { watchSpinners(); } catch (e) { }
     trackShorts();
     applyNative();
     if (shortId()) { try { skipAdShort(); } catch (e) { } }
