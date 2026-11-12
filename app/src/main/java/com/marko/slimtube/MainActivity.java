@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private android.widget.LinearLayout tabBar;
     private GeckoSession session;
     private boolean canGoBack;
+    private GeckoSession.HistoryDelegate.HistoryList history;
     private boolean fullScreen;
     /** The page lives on in App when a new window opens: remember where it is. */
     private static String lastUrl = App.HOME;
@@ -86,6 +87,12 @@ public class MainActivity extends Activity {
         App.onDownload = downloadHandler;
         session = App.session(this);
         session.setNavigationDelegate(new NavDelegate());
+        session.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
+            @Override
+            public void onHistoryStateChange(GeckoSession s, GeckoSession.HistoryDelegate.HistoryList list) {
+                history = list;
+            }
+        });
         session.setContentDelegate(new ContentDelegate());
         geckoView.setSession(session);
     }
@@ -137,6 +144,26 @@ public class MainActivity extends Activity {
     }
 
     private void navigateBack() {
+        // Several videos opened one after another: back goes straight to the page the first
+        // one was opened from (Home, search, channel...) instead of through every video.
+        if (canGoBack && isWatch(currentUrl) && history != null) {
+            int cur = history.getCurrentIndex();
+            if (cur > 0 && cur < history.size()) {
+                int target = -1;
+                for (int i = cur - 1; i >= 0; i--) {
+                    String u = history.get(i).getUri();
+                    if (!isWatch(u) && (u == null || !u.contains("#"))) { target = i; break; }
+                }
+                if (target < 0) {
+                    session.loadUri(App.HOME);
+                    return;
+                }
+                if (target < cur - 1) {
+                    session.gotoHistoryIndex(target);
+                    return;
+                }
+            }
+        }
         if (canGoBack) {
             session.goBack();
         } else if (!isHome(currentUrl)) {
@@ -144,6 +171,12 @@ public class MainActivity extends Activity {
         } else {
             moveTaskToBack(true);
         }
+    }
+
+    private static boolean isWatch(String url) {
+        if (url == null) return false;
+        String path = Uri.parse(url).getPath();
+        return path != null && path.startsWith("/watch");
     }
 
     private static boolean isHome(String url) {
