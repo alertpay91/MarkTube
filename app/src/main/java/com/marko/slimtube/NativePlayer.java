@@ -55,6 +55,12 @@ final class NativePlayer {
     static Runnable onNext;            // "next" pressed, or the video ended
     static Consumer<String> onFailed;  // this video can't be played natively: use the web player
     static Runnable onFirstFrame;
+    /** ~45 s before the end: asked for the next video's id, answered with {@link #queueNext}. */
+    static Consumer<String> onNeedNext;
+    /** The queued video started by itself (id). */
+    static Consumer<String> onAdvanced;
+    private static String queuedId;   // added to the player's list, plays after the current one
+    private static String queuedFor;  // the video a next one was already asked for
 
     static Player get(Context c) {
         if (exo == null) {
@@ -82,6 +88,20 @@ final class NativePlayer {
                         stuckMs = 0;
                         PlaybackService.dismiss(ctx); // one player notification, not two
                     }
+                }
+
+                @Override
+                public void onMediaItemTransition(@androidx.annotation.Nullable MediaItem item, int reason) {
+                    if (item == null || reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                            || queuedId == null || !queuedId.equals(item.mediaId)) return;
+                    currentId = queuedId;
+                    queuedId = null;
+                    queuedFor = null;
+                    Log.i(App.TAG, "next started without a gap: " + currentId);
+                    int idx = exo.getCurrentMediaItemIndex();
+                    if (idx > 0) exo.removeMediaItems(0, idx);
+                    loadSponsorSegments(currentId);
+                    if (onAdvanced != null) onAdvanced.accept(currentId);
                 }
 
                 @Override
@@ -168,6 +188,16 @@ final class NativePlayer {
                     Streams.forget(id);
                     load(id, exo.getCurrentPosition(), true);
                 }
+            }
+            // Near the end: put the next video in the player's list now, while the app still
+            // counts as playing. When a video ended first, the media service left the
+            // foreground, and with the screen off (and background mobile data off) Android
+            // cut the network: the next one could not load and the music stopped.
+            long dur = exo.getDuration();
+            if (exo.isPlaying() && dur != C.TIME_UNSET && dur - exo.getCurrentPosition() < 45_000
+                    && queuedId == null && !currentId.equals(queuedFor) && onNeedNext != null) {
+                queuedFor = currentId;
+                onNeedNext.accept(currentId);
             }
             main.postDelayed(this, 2000);
         }
@@ -262,7 +292,29 @@ final class NativePlayer {
         }, "streams").start();
     }
 
-    private static void start(Streams s, long startMs, boolean playWhenReady) {
+    /** Adds the next video after the current one (looked up first; we still have network). */
+    static void queueNext(String id) {
+        String forId = currentId;
+        if (forId == null || id.equals(forId) || queuedId != null) return;
+        int gen = generation;
+        new Thread(() -> {
+            Streams s;
+            try {
+                s = Streams.get(id);
+            } catch (Exception e) {
+                Log.w(App.TAG, "queue next failed " + id + ": " + e.getMessage());
+                return;
+            }
+            main.post(() -> {
+                if (gen != generation || !forId.equals(currentId) || queuedId != null) return;
+                exo.addMediaSource(source(s));
+                queuedId = id;
+                Log.i(App.TAG, "queued next " + id);
+            });
+        }, "queue").start();
+    }
+
+    private static MediaSource source(Streams s) {
         ProgressiveMediaSource.Factory fa = new ProgressiveMediaSource.Factory(http(s.audio));
         ProgressiveMediaSource.Factory fv = s.video != null ? new ProgressiveMediaSource.Factory(http(s.video)) : null;
         MediaItem.Builder item = new MediaItem.Builder()
@@ -273,9 +325,14 @@ final class NativePlayer {
                         .setArtworkUri(Uri.parse("https://i.ytimg.com/vi/" + s.id + "/hqdefault.jpg"))
                         .build());
         MediaSource audio = fa.createMediaSource(item.setUri(s.audio).build());
-        MediaSource source = fv == null ? audio
+        return fv == null ? audio
                 : new MergingMediaSource(fv.createMediaSource(item.setUri(s.video).build()), audio);
-        exo.setMediaSource(source, Math.max(0, startMs));
+    }
+
+    private static void start(Streams s, long startMs, boolean playWhenReady) {
+        queuedId = null;
+        queuedFor = null;
+        exo.setMediaSource(source(s), Math.max(0, startMs));
         applyVideoWanted();
         exo.prepare();
         exo.setPlayWhenReady(playWhenReady);
@@ -317,6 +374,8 @@ final class NativePlayer {
     static void stop() {
         rememberPosition();
         currentId = null;
+        queuedId = null;
+        queuedFor = null;
         main.removeCallbacks(watchdog);
         generation++;
         if (exo != null) {

@@ -532,6 +532,8 @@ public class MainActivity extends Activity {
             spinner.setVisibility(View.GONE);
         };
         NativePlayer.onNext = this::playNext;
+        NativePlayer.onNeedNext = this::queueNext;
+        NativePlayer.onAdvanced = this::onAdvanced;
         NativePlayer.onFailed = id -> {
             // e.g. age-restricted: let YouTube's own player have this one
             Log.w(App.TAG, "native failed, web player for " + id);
@@ -694,6 +696,43 @@ public class MainActivity extends Activity {
     }
 
     /** "Next" or the end of a video: what YouTube's autoplay would open (playlist first). */
+    /** ~45 s before the end: finds the next playable video and queues it in the player. */
+    private void queueNext(String id) {
+        App.requestNext(found -> {
+            java.util.List<String> candidates = new java.util.ArrayList<>();
+            if (found != null) candidates.add(found);
+            try {
+                Streams cur = Streams.get(id);
+                if (cur.next != null) candidates.add(cur.next);
+                candidates.addAll(cur.related);
+            } catch (Exception ignored) {
+            }
+            new Thread(() -> {
+                for (String c : candidates) {
+                    String nid = watchId(c.replace("://www.youtube.com/", "://m.youtube.com/"));
+                    if (nid == null || webOnly.contains(nid) || nid.equals(id)) continue;
+                    try {
+                        Streams.get(nid);
+                        runOnUiThread(() -> NativePlayer.queueNext(nid));
+                        return;
+                    } catch (Exception e) {
+                        Log.i(App.TAG, "next: skipping " + nid + " (" + e.getMessage() + ")");
+                    }
+                }
+            }, "next").start();
+        });
+    }
+
+    /** The queued video started: show it (the small player keeps the page the user is on). */
+    private void onAdvanced(String id) {
+        updateMini();
+        if (!mini) {
+            // A direct load: the in-page switch was ignored here. The player keeps playing,
+            // since the page then shows the video that is already playing.
+            session.loadUri("https://m.youtube.com/watch?v=" + id);
+        }
+    }
+
     private void playNext() {
         String id = NativePlayer.currentId;
         App.requestNext(found -> {
