@@ -35,6 +35,12 @@ public class MainActivity extends Activity {
     private GeckoView geckoView;
     private android.widget.LinearLayout tabBar;
     private GeckoSession session;
+    private android.widget.LinearLayout column;
+    private android.widget.LinearLayout miniBar;
+    private android.widget.TextView miniTitle;
+    private android.widget.ImageButton miniPlay;
+    private android.widget.TextView fpsButton;
+    private boolean mini;
     private boolean canGoBack;
     private GeckoSession.HistoryDelegate.HistoryList history;
     private boolean fullScreen;
@@ -48,7 +54,7 @@ public class MainActivity extends Activity {
         // GeckoView maps touches wrongly if it has padding itself, so the system-bar insets
         // are applied to a plain container around it instead.
         root = new android.widget.FrameLayout(this);
-        android.widget.LinearLayout column = new android.widget.LinearLayout(this);
+        column = new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         geckoView = new GeckoView(this);
         // YouTube's dark background until the page has drawn (instead of a white surface).
@@ -59,6 +65,9 @@ public class MainActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         column.addView(geckoView, new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        buildMiniBar();
+        column.addView(miniBar, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(64)));
         tabBar = buildTabBar();
         column.addView(tabBar, new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
@@ -430,6 +439,17 @@ public class MainActivity extends Activity {
         public void onIsPlayingChanged(boolean playing) {
             playerView.setKeepScreenOn(playing);
             if (playing) spinner.setVisibility(View.GONE);
+            updateMini();
+        }
+
+        @Override
+        public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            updateMini();
+        }
+
+        @Override
+        public void onMediaMetadataChanged(@androidx.annotation.NonNull androidx.media3.common.MediaMetadata m) {
+            updateMini();
         }
 
         @Override
@@ -478,6 +498,32 @@ public class MainActivity extends Activity {
         android.widget.FrameLayout.LayoutParams sp = new android.widget.FrameLayout.LayoutParams(dp(48), dp(48));
         sp.gravity = android.view.Gravity.CENTER;
         playerBox.addView(spinner, sp);
+
+        // 30 / 60 fps switch, shown together with the player's controls.
+        Streams.allow60 = getSharedPreferences("player", MODE_PRIVATE).getBoolean("fps60", false);
+        fpsButton = new android.widget.TextView(this);
+        fpsButton.setTextColor(0xFFFFFFFF);
+        fpsButton.setTextSize(13);
+        fpsButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        fpsButton.setPadding(dp(12), dp(8), dp(12), dp(8));
+        fpsButton.setBackgroundColor(0x66000000);
+        fpsButton.setText(Streams.allow60 ? "60 fps" : "30 fps");
+        fpsButton.setVisibility(View.GONE);
+        fpsButton.setOnClickListener(v -> {
+            Streams.allow60 = !Streams.allow60;
+            getSharedPreferences("player", MODE_PRIVATE).edit().putBoolean("fps60", Streams.allow60).apply();
+            fpsButton.setText(Streams.allow60 ? "60 fps" : "30 fps");
+            android.widget.Toast.makeText(this, Streams.allow60
+                    ? "60 fps kad video to ima: glatkije, ali troši više baterije"
+                    : "30 fps: štedi bateriju", android.widget.Toast.LENGTH_SHORT).show();
+            NativePlayer.reload();
+        });
+        android.widget.FrameLayout.LayoutParams fp = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        fp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        playerBox.addView(fpsButton, fp);
+        playerView.setControllerVisibilityListener((androidx.media3.ui.PlayerView.ControllerVisibilityListener)
+                visibility -> fpsButton.setVisibility(mini ? View.GONE : visibility));
 
         playerView.setPlayer(NativePlayer.get(this));
         NativePlayer.exo().addListener(nativeListener);
@@ -533,16 +579,98 @@ public class MainActivity extends Activity {
         String id = watchId(url);
         if (id != null && !webOnly.contains(id)) {
             App.setNative(true);
+            setMini(false);
             if (!id.equals(NativePlayer.currentId)) {
                 showThumb(id);
                 NativePlayer.play(this, id, startMs(url));
             }
             showNative(true);
+        } else if (id == null && NativePlayer.currentId != null && !isShorts(url)) {
+            // Left the video for another page: like the official app, it keeps playing in a
+            // small player at the bottom (tap = back to the video, X = stop).
+            if (nativeFs) setNativeFullscreen(false);
+            setMini(true);
         } else {
             if (id != null) App.setNative(false); // this video uses the web player
             if (NativePlayer.currentId != null) NativePlayer.stop();
             if (nativeFs) setNativeFullscreen(false);
+            setMini(false);
             showNative(false);
+        }
+    }
+
+    private void buildMiniBar() {
+        miniBar = new android.widget.LinearLayout(this);
+        miniBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        miniBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        miniBar.setBackgroundColor(0xFF212121);
+        miniBar.setVisibility(View.GONE);
+        miniBar.setOnClickListener(v -> {
+            String id = NativePlayer.currentId;
+            if (id == null) return;
+            String url = "https://m.youtube.com/watch?v=" + id;
+            App.navigate(url, () -> session.loadUri(url));
+        });
+        miniTitle = new android.widget.TextView(this);
+        miniTitle.setTextColor(0xFFFFFFFF);
+        miniTitle.setTextSize(14);
+        miniTitle.setMaxLines(2);
+        miniTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        miniTitle.setPadding(dp(10), 0, dp(4), 0);
+        miniBar.addView(miniTitle, new android.widget.LinearLayout.LayoutParams(0,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        android.util.TypedValue ripple = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+        miniPlay = new android.widget.ImageButton(this);
+        miniPlay.setBackgroundResource(ripple.resourceId);
+        miniPlay.setColorFilter(0xFFFFFFFF);
+        miniPlay.setContentDescription("Pusti / pauziraj");
+        miniPlay.setOnClickListener(v -> {
+            androidx.media3.exoplayer.ExoPlayer p = NativePlayer.exo();
+            if (p != null) p.setPlayWhenReady(!p.getPlayWhenReady());
+        });
+        miniBar.addView(miniPlay, new android.widget.LinearLayout.LayoutParams(dp(48), dp(48)));
+        android.widget.ImageButton close = new android.widget.ImageButton(this);
+        close.setBackgroundResource(ripple.resourceId);
+        close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+        close.setColorFilter(0xFFFFFFFF);
+        close.setContentDescription("Zatvori");
+        close.setOnClickListener(v -> {
+            NativePlayer.stop();
+            setMini(false);
+            showNative(false);
+        });
+        miniBar.addView(close, new android.widget.LinearLayout.LayoutParams(dp(48), dp(48)));
+    }
+
+    private void updateMini() {
+        if (!mini) return;
+        androidx.media3.exoplayer.ExoPlayer p = NativePlayer.exo();
+        CharSequence t = p != null ? p.getMediaMetadata().title : null;
+        miniTitle.setText(t != null ? t : "");
+        boolean on = p != null && p.getPlayWhenReady();
+        miniPlay.setImageResource(on ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+    }
+
+    /** Moves the video picture into the small bar at the bottom, or back to the top. */
+    private void setMini(boolean on) {
+        if (mini == on) return;
+        mini = on;
+        ((android.view.ViewGroup) playerBox.getParent()).removeView(playerBox);
+        if (on) {
+            playerView.hideController();
+            playerView.setUseController(false);
+            fpsButton.setVisibility(View.GONE);
+            miniBar.addView(playerBox, 0, new android.widget.LinearLayout.LayoutParams(dp(114), dp(64)));
+            playerBox.setVisibility(View.VISIBLE);
+            miniBar.setVisibility(View.VISIBLE);
+            updateMini();
+        } else {
+            miniBar.setVisibility(View.GONE);
+            column.addView(playerBox, 0, new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+            playerView.setUseController(true);
         }
     }
 

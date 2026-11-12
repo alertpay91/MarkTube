@@ -113,6 +113,41 @@
     return null;
   }
 
+  // Back on a video after several videos opened one from another: straight to the page the
+  // first one came from (Home, search, playlist, channel), like the official app, where the
+  // video then keeps playing in the small player. The browser's own list of entries is
+  // exact; the app only gets late, partial updates of it.
+  function isVideoPath(p) { return p.startsWith("/watch") || p.startsWith("/shorts"); }
+  function trySkipVideos() {
+    if (!location.pathname.startsWith("/watch")) return null;
+    let nav = window.navigation;
+    if (!nav && window.wrappedJSObject) nav = window.wrappedJSObject.navigation;
+    if (!nav || typeof nav.entries !== "function" || !nav.currentEntry) {
+      port.postMessage({ type: "log", text: "back: no Navigation API" });
+      return null;
+    }
+    const es = nav.entries();
+    const cur = nav.currentEntry.index;
+    let target = -1;
+    for (let i = cur - 1; i >= 0; i--) {
+      const u = new URL(es[i].url);
+      if (!isVideoPath(u.pathname) && !u.hash) { target = i; break; }
+    }
+    port.postMessage({ type: "log", text: "back: entry " + cur + " of " + es.length + " -> " + target });
+    if (target >= 0) {
+      history.go(target - cur);
+      return "videos";
+    }
+    if (cur <= 0) return null; // nothing before: the app opens Home itself
+    const a = document.createElement("a"); // only videos before (opened from a link): Home
+    a.href = "/";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return "home";
+  }
+
   // Short description of what is on screen, so problems can be diagnosed from logcat.
   function dump() {
     const out = [];
@@ -407,6 +442,8 @@
     + "html.mt-native #player-container-id, html.mt-native .player-container,"
     + "html.mt-native #player, html.mt-native ytm-player, html.mt-native .player-size,"
     + "html.mt-native ytm-miniplayer, html.mt-native .player-placeholder { display: none !important; }"
+    // the app's own small player replaces YouTube's when leaving a video
+    + "html.mt-nativemode ytm-miniplayer { display: none !important; }"
     + "html.mt-native body, html.mt-native .page-container, html.mt-native ytm-app,"
     + "html.mt-native ytm-watch { padding-top: 0 !important; margin-top: 0 !important; }"
     // the "ambient" colour glow around YouTube's player would stay black without it
@@ -422,6 +459,7 @@
   function applyNative() {
     const on = nativeOn && isWatch();
     document.documentElement.classList.toggle("mt-native", on);
+    document.documentElement.classList.toggle("mt-nativemode", nativeOn && !location.pathname.startsWith("/shorts"));
     if (!on) return;
     // the page's own background (light or dark theme), for the parts the glow made black
     const bg = getComputedStyle(document.documentElement).backgroundColor;
@@ -435,7 +473,9 @@
     }
   }
   document.addEventListener("play", (e) => {
-    if (nativeOn && isWatch() && e.target.pause) { e.target.muted = true; e.target.pause(); }
+    // Also off the video page: YouTube's own mini player would start the same video again
+    // (and the app then pauses its player). Shorts always play in the page.
+    if (nativeOn && !location.pathname.startsWith("/shorts") && e.target.pause) { e.target.muted = true; e.target.pause(); }
   }, true);
   applyNative();
 
@@ -526,7 +566,7 @@
   port.onMessage.addListener((msg) => {
     if (msg.type === "back") {
       let closed = null;
-      try { closed = tryCloseDialog() || tryClose() || tryPreviousShort(); } catch (e) { closed = null; }
+      try { closed = tryCloseDialog() || tryClose() || tryPreviousShort() || trySkipVideos(); } catch (e) { closed = null; }
       port.postMessage({ type: "backResult", id: msg.id, handled: !!closed, what: closed });
     } else if (msg.type === "nav") {
       // Leaving Shorts: YouTube keeps the black Shorts player on screen until the next page

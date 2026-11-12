@@ -27,6 +27,8 @@ import java.util.concurrent.Future;
 final class Streams {
     /** Tallest picture fetched. H.264 is preferred: every phone decodes it in hardware. */
     static final int MAX_HEIGHT = 720;
+    /** Off by default (saves battery); switched with the "fps" button on the player. */
+    static volatile boolean allow60;
     /** Addresses stay valid for about 6 hours; reuse them for a while. */
     private static final long CACHE_MS = 2 * 60 * 60 * 1000L;
 
@@ -110,11 +112,16 @@ final class Streams {
                     best = a;
                 }
             }
+            // 30 fps unless the user turned on 60 fps: half the decoding work. (A 60 fps video
+            // only has 30 fps versions up to 480p; the 60 fps one is used if there is no other.)
             VideoStream video = null;
-            for (VideoStream v : si.getVideoOnlyStreams()) {
-                if (v.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP || !v.isUrl()) continue;
-                if (v.getFormat() != MediaFormat.MPEG_4 || v.getHeight() > MAX_HEIGHT) continue;
-                if (video == null || videoScore(v) > videoScore(video)) video = v;
+            for (int pass = allow60 ? 1 : 0; pass < 2 && video == null; pass++) {
+                for (VideoStream v : si.getVideoOnlyStreams()) {
+                    if (v.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP || !v.isUrl()) continue;
+                    if (v.getFormat() != MediaFormat.MPEG_4 || v.getHeight() > MAX_HEIGHT) continue;
+                    if (pass == 0 && v.getFps() > 30) continue;
+                    if (video == null || videoScore(v) > videoScore(video)) video = v;
+                }
             }
             String audioUrl = best != null ? best.getContent() : null;
             String videoUrl = video != null ? video.getContent() : null;

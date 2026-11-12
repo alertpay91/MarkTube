@@ -215,6 +215,15 @@ final class NativePlayer {
         loadSponsorSegments(id);
     }
 
+    /** Same video, same moment, streams picked again (after the 30/60 fps switch). */
+    static void reload() {
+        if (currentId == null || exo == null) return;
+        Streams.forget(currentId);
+        long pos = exo.getCurrentPosition();
+        boolean pw = exo.getPlayWhenReady();
+        load(currentId, pos, pw);
+    }
+
     private static void load(String id, long startMs, boolean playWhenReady) {
         int gen = ++generation;
         Streams.prefetch(id);
