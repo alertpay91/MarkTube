@@ -62,6 +62,50 @@ final class NativePlayer {
     private static String queuedId;   // added to the player's list, plays after the current one
     private static String queuedFor;  // the video a next one was already asked for
 
+    /**
+     * Network gone (tunnel, lift, weak signal): keep "loading" and try again every 3 s for up
+     * to 10 minutes, so it continues by itself when the network is back. An error instead
+     * would stop the music, and the app would also stop counting as playing, after which
+     * Android does not even give it the network back with the screen off.
+     */
+    private static final androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy WAIT_FOR_NETWORK =
+            new androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                @Override
+                public long getRetryDelayMsFor(@NonNull LoadErrorInfo info) {
+                    if (isNetworkError(info.exception)) {
+                        if (info.errorCount == 1) Log.w(App.TAG, "network lost, waiting: " + info.exception);
+                        return info.errorCount <= 200 ? 3000 : C.TIME_UNSET;
+                    }
+                    return super.getRetryDelayMsFor(info);
+                }
+
+                @Override
+                public int getMinimumLoadableRetryCount(int dataType) {
+                    return 200; // report the error only after the 10 minutes above
+                }
+            };
+
+    private static boolean hasNetwork() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            return nc != null && nc.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    static boolean isNetworkError(Throwable t) {
+        for (int i = 0; t != null && i < 8; t = t.getCause(), i++) {
+            if (t instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) return false;
+            if (t instanceof java.net.UnknownHostException || t instanceof java.net.SocketException
+                    || t instanceof java.net.SocketTimeoutException || t instanceof javax.net.ssl.SSLException
+                    || t instanceof java.io.InterruptedIOException) return true;
+        }
+        return false;
+    }
+
     static Player get(Context c) {
         if (exo == null) {
             ctx = c.getApplicationContext();
@@ -177,7 +221,8 @@ final class NativePlayer {
             if (exo == null || currentId == null) return;
             boolean waiting = exo.getPlayWhenReady() && (exo.getPlaybackState() == Player.STATE_BUFFERING
                     || (exo.getPlaybackState() == Player.STATE_IDLE && exo.getMediaItemCount() == 0));
-            stuckMs = waiting ? stuckMs + 2000 : 0;
+            // Without network there is nothing to fix: the player waits for it (WAIT_FOR_NETWORK).
+            stuckMs = waiting && hasNetwork() ? stuckMs + 2000 : 0;
             if (stuckMs >= 10_000) {
                 stuckMs = 0;
                 String id = currentId;
@@ -292,6 +337,14 @@ final class NativePlayer {
         }, "streams").start();
     }
 
+    /** No next video could be looked up (e.g. no network): ask again in 10 s. */
+    static void queueFailed() {
+        String forId = currentId;
+        main.postDelayed(() -> {
+            if (forId != null && forId.equals(queuedFor) && queuedId == null) queuedFor = null;
+        }, 10_000);
+    }
+
     /** Adds the next video after the current one (looked up first; we still have network). */
     static void queueNext(String id) {
         String forId = currentId;
@@ -303,6 +356,7 @@ final class NativePlayer {
                 s = Streams.get(id);
             } catch (Exception e) {
                 Log.w(App.TAG, "queue next failed " + id + ": " + e.getMessage());
+                queueFailed();
                 return;
             }
             main.post(() -> {
@@ -315,8 +369,10 @@ final class NativePlayer {
     }
 
     private static MediaSource source(Streams s) {
-        ProgressiveMediaSource.Factory fa = new ProgressiveMediaSource.Factory(http(s.audio));
-        ProgressiveMediaSource.Factory fv = s.video != null ? new ProgressiveMediaSource.Factory(http(s.video)) : null;
+        ProgressiveMediaSource.Factory fa = new ProgressiveMediaSource.Factory(http(s.audio))
+                .setLoadErrorHandlingPolicy(WAIT_FOR_NETWORK);
+        ProgressiveMediaSource.Factory fv = s.video != null ? new ProgressiveMediaSource.Factory(http(s.video))
+                .setLoadErrorHandlingPolicy(WAIT_FOR_NETWORK) : null;
         MediaItem.Builder item = new MediaItem.Builder()
                 .setMediaId(s.id)
                 .setMediaMetadata(new MediaMetadata.Builder()

@@ -717,8 +717,10 @@ public class MainActivity extends Activity {
                         return;
                     } catch (Exception e) {
                         Log.i(App.TAG, "next: skipping " + nid + " (" + e.getMessage() + ")");
+                        if (NativePlayer.isNetworkError(e)) break; // no network: all would fail
                     }
                 }
+                NativePlayer.queueFailed(); // try again in a moment
             }, "next").start();
         });
     }
